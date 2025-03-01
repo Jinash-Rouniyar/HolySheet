@@ -180,6 +180,26 @@ function App() {
     }
   };
 
+  const handleFileOpen = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file && spreadsheetRef.current) {
+      // This call triggers the open functionality using the Syncfusion endpoint specified by openUrl.
+      spreadsheetRef.current.open({ file });
+    }
+  };
+
+  // New handler for file save:
+  const handleFileSave = () => {
+    if (spreadsheetRef.current) {
+      // This call triggers the save functionality using the Syncfusion endpoint specified by saveUrl.
+      spreadsheetRef.current.save({
+        url: 'https://services.syncfusion.com/js/production/api/spreadsheet/save',
+        fileName: 'Sample',
+        saveType: 'Xlsx'
+      });
+    }
+  };
+
   return (
     <div style={{ height: '100vh', width: '100%', position: 'relative' }}>
       <SpreadsheetComponent
@@ -188,6 +208,8 @@ function App() {
         width='100%'
         allowOpen={true}
         allowSave={true}
+        openUrl="https://services.syncfusion.com/js/production/api/spreadsheet/open"
+        saveUrl="https://services.syncfusion.com/js/production/api/spreadsheet/save"
         showFormulaBar={true}
         showRibbon={true}
         allowChart={true}
