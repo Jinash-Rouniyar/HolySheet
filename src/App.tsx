@@ -147,32 +147,29 @@ function App() {
 
   const handleResearchData = async (data: any) => {
     if (!spreadsheetRef.current || !data) return;
-
     const spreadsheet = spreadsheetRef.current;
     const sheet = spreadsheet.getActiveSheet();
     
     if (!sheet) return;
-
     try {
-      // Clear the current sheet
-      spreadsheet.clear({ type: 'Clear All' });
-
-      // Prepare the data array with headers
       const arrayData = [
         data.headers,
         ...data.data
       ];
-      
-      // Import the data into the spreadsheet
-      spreadsheet.insertSheet([{
-        ranges: [{
-          dataSource: arrayData,
-          showFieldAsHeader: false,
-          startCell: 'A1'
-        }]
-      }]);
-
-      // Set reasonable column widths
+      // Get last used row index (zero-based)
+      const lastRow = sheet.usedRange?.rowIndex || 0;
+      // Calculate starting row
+      const startRow = lastRow > 0 ? lastRow + 2 : 0;
+  
+      // Convert array data to cell updates
+      arrayData.forEach((row: string[], rowIndex: number) => {
+        row.forEach((value: string, colIndex: number) => {
+          const cellAddress = `${String.fromCharCode(65 + colIndex)}${startRow + rowIndex + 1}`;
+          spreadsheet.updateCell({ value }, cellAddress);
+        });
+      });
+  
+      // Set column widths
       if (arrayData[0]) {
         spreadsheet.setColWidth(0, arrayData[0].length - 1, 120);
       }
