@@ -162,12 +162,13 @@ function App() {
         data.headers,
         ...data.data
       ];
-
+      
       // Import the data into the spreadsheet
       spreadsheet.insertSheet([{
         ranges: [{
           dataSource: arrayData,
-          showFieldAsHeader: true
+          showFieldAsHeader: false,
+          startCell: 'A1'
         }]
       }]);
 

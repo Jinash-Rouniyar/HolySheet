@@ -35,17 +35,23 @@ app.post('/api/research', async (req, res) => {
       messages: [
         {
           role: 'system',
-          content: `You are a data extraction assistant. Return only a JSON structure with the following format, without any additional text or explanations:
-   \`\`\`json
-   {
-     "headers": ["Column Name 1", "Column Name 2", ...],
-     "data": [
-       ["Value 1", "Value 2", ...],
-       ["Value 1", "Value 2", ...],
-       ...
-     ]
-   }
-   \`\`\``
+          content: `You are a data extraction assistant. Extract the requested data and return it as a clean JSON object with the following structure ONLY. Do not include any markdown code blocks, backticks, or explanatory text:
+
+    {
+      "headers": ["Column Name 1", "Column Name 2", ...],
+      "data": [
+        ["Value 1", "Value 2", ...],
+        ["Value 1", "Value 2", ...],
+        ...
+      ]
+    }
+    
+    Important rules:
+    1. Do not include row numbers or indices in the headers or data
+    2. Do not add any explanatory text or metadata
+    3. Make sure headers are descriptive column names only
+    4. Ensure data rows contain only the actual values
+    5. Return only the JSON object with no additional formatting`
         },
         {
           role: 'user',
