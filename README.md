@@ -27,10 +27,12 @@ Experience the application in action:
 Easily deploy the application using Docker:
 
 ```sh
-docker-compose up --build
-
-### **Run Locally**
-Run it locally:
+docker-compose up --build;
+```
+### **Run the application locally**
+Test it out on your developmental Server
 
 ```sh
-npm install; npm run dev
+npm install
+npm run dev
+```
