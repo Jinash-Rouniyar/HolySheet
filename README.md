@@ -1,7 +1,36 @@
-**EJ2 SpreadSheet Application with AI Assistance Features**
+# **EJ2 Spreadsheet Application with AI Assistance**
 
-a) Allows you to automatically fill data, create graphs, and parse the internet to fill in the worksheet with just a simple text prompt.
+## ✨ Overview
+The **EJ2 Spreadsheet Application** integrates AI-powered features to enhance spreadsheet functionality. With natural language prompts, users can:  
+✔️ Automatically fill data.  
+✔️ Generate insightful graphs.  
+✔️ Parse information from the internet to enrich worksheets.  
 
-Run the application using docker-compose.yml file
+## 🚀 Live Demo
+Experience the application in action:  
+🔗 [Live Demo](https://rembrance.co)  
 
-Go to **rembrance.co** to see the live working demo of the application
+🎥 Watch the demo:  
+[![Loom Video](https://cdn.loom.com/sessions/thumbnails/64c615cd07934bda9f2982b2e1e67e2d.jpg)](https://www.loom.com/share/64c615cd07934bda9f2982b2e1e67e2d?sid=3b67b2de-13d6-45cd-a422-8ae6800b1caa)  
+
+## Features
+✅ AI-assisted data entry and completion  
+✅ Smart graph generation based on textual instructions  
+✅ Web parsing capabilities to enrich spreadsheet data  
+✅ Seamless and intuitive user experience  
+✅ Real-time collaboration and editing support  
+✅ Lightweight and efficient performance  
+
+## 🛠️ Getting Started
+
+### **Run with Docker**
+Easily deploy the application using Docker:
+
+```sh
+docker-compose up --build
+
+### **Run Locally**
+Run it locally:
+
+```sh
+npm install; npm run dev
