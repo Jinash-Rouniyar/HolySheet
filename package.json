@@ -1,64 +1,15 @@
 {
-  "name": "holysheet",
-  "version": "0.1.0",
-  "private": true,
-  "dependencies": {
-    "@syncfusion/ej2-base": "^28.2.3",
-    "@syncfusion/ej2-react-buttons": "^28.2.3",
-    "@syncfusion/ej2-react-calendars": "^28.2.3",
-    "@syncfusion/ej2-react-grids": "^28.2.3",
-    "@syncfusion/ej2-react-inputs": "^28.2.3",
-    "@syncfusion/ej2-react-spreadsheet": "^28.2.3",
-    "@testing-library/dom": "^10.4.0",
-    "@testing-library/jest-dom": "^5.17.0",
-    "@testing-library/react": "^13.4.0",
-    "@testing-library/user-event": "^13.5.0",
-    "@types/jest": "^27.5.2",
-    "@types/node": "^16.18.68",
-    "@types/react": "^18.2.45",
-    "@types/react-dom": "^18.2.18",
-    "chart.js": "^4.4.8",
-    "cors": "^2.8.5",
-    "dotenv": "^16.4.7",
-    "express": "^4.21.2",
-    "holysheet": "file:",
-    "node-fetch": "^2.7.0",
-    "react": "^18.2.0",
-    "react-chartjs-2": "^5.3.0",
-    "react-dom": "^18.2.0",
-    "react-markdown": "^10.0.0",
-    "react-scripts": "5.0.1",
-    "typescript": "^4.9.5",
-    "web-vitals": "^2.1.4"
-  },
-  "scripts": {
-    "start": "set PORT=3002 && react-scripts start",
-    "server": "node server.js",
-    "dev": "concurrently \"npm run server\" \"npm run start\"",
-    "build": "react-scripts build",
-    "test": "react-scripts test",
-    "eject": "react-scripts eject"
-  },
-  "eslintConfig": {
-    "extends": [
-      "react-app",
-      "react-app/jest"
-    ]
-  },
-  "browserslist": {
-    "production": [
-      ">0.2%",
-      "not dead",
-      "not op_mini all"
+    "name": "holysheet-monorepo",
+    "private": true,
+    "workspaces": [
+      "excel-app",
+      "landing-page"
     ],
-    "development": [
-      "last 1 chrome version",
-      "last 1 firefox version",
-      "last 1 safari version"
-    ]
-  },
-  "devDependencies": {
-    "@types/axios": "^0.14.4",
-    "concurrently": "^9.1.2"
+    "scripts": {
+      "dev": "concurrently \"npm run dev --workspace=excel-app\" \"npm run dev --workspace=landing-page\""
+    },
+    "devDependencies": {
+      "concurrently": "^9.1.2"
+    }
   }
-}
+  
