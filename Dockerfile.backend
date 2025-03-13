@@ -1,0 +1,19 @@
+# Use an optimized Node.js image
+FROM node:18-alpine
+
+# Set working directory
+WORKDIR /app
+
+# Copy package files and install only production dependencies
+COPY package.json package-lock.json ./
+RUN npm install --only=production
+RUN npm install -g pm2
+
+# Copy the rest of the backend code
+COPY . .
+
+# Expose the backend port
+EXPOSE 5000
+
+# Use a process manager for stability (PM2 recommended)
+CMD ["npx", "pm2-runtime", "server.js"]
