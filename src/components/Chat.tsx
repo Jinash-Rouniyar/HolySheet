@@ -34,7 +34,6 @@ const Chat: React.FC<ChatProps> = ({ isOpen, onClose, onSendRequest, messages, o
     useEffect(() => {
         if (messages.length > 0) {
             setLocalMessages(prev => {
-                // Keep welcome message if it's the only message
                 if (prev.length === 1 && !prev[0].isUser) {
                     return [...prev, ...messages];
                 }
@@ -43,7 +42,6 @@ const Chat: React.FC<ChatProps> = ({ isOpen, onClose, onSendRequest, messages, o
         }
     }, [messages]);
 
-    // Auto-resize textarea
     const adjustTextareaHeight = () => {
         const textarea = textareaRef.current;
         if (textarea) {
@@ -59,7 +57,6 @@ const Chat: React.FC<ChatProps> = ({ isOpen, onClose, onSendRequest, messages, o
     const performResearch = async (query: string) => {
         setIsLoading(true);
         try {
-            // Use relative URL instead of absolute URL
             const endpoint = '/api/research';
             
             console.log('Making research request to:', endpoint);
@@ -75,14 +72,12 @@ const Chat: React.FC<ChatProps> = ({ isOpen, onClose, onSendRequest, messages, o
             console.log('Response status:', response.status);
             console.log('Response headers:', Object.fromEntries(response.headers));
             
-            // Check if response is OK before trying to parse JSON
             if (!response.ok) {
                 const errorText = await response.text();
                 console.error('API error response:', errorText);
                 throw new Error(`API request failed: ${response.status} ${response.statusText} - ${errorText}`);
             }
             
-            // Try to parse the JSON response
             let data;
             try {
                 data = await response.json();

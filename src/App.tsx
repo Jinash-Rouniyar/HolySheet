@@ -10,7 +10,7 @@ if (process.env.SYNCFUSION_LICENSE) {
   registerLicense(process.env.SYNCFUSION_LICENSE);
 } else {
   try {
-    registerLicense('ORg4AjUWIQA/Gnt2XVhhQlJHfVxdX2dWfFN0QHNYf1R1fF9EZkwgOX1dQl9mSXxRdERiWH9bcn1RT2g=');
+    registerLicense('Ngo9BigBOggjHTQxAR8/V1JEaF5cXmRCdkx/WmFZfVtgdVRMZFpbR3BPIiBoS35Rc0VkWH9cc3BTQmBfV01xVEFd');
   } catch (error) {
     console.warn('Syncfusion license registration failed:', error);
   }
@@ -77,22 +77,17 @@ function App() {
     if (!spreadsheet) return data;
   
     try {
-        // Get all sheets
         const allSheets = spreadsheet.sheets;
-        // Get active sheet index
         const activeSheetIndex = spreadsheet.activeSheetIndex;
   
-        // Check if there are other sheets
         if (!allSheets || allSheets.length <= 1) {
             console.warn('No additional worksheets found');
             return data;
         }
-  
-        // Select the first non-active sheet
+
         const targetSheetIndex = activeSheetIndex === 0 ? 1 : 0;
         const targetSheet = allSheets[targetSheetIndex];
   
-        // Fetch data from the target sheet
         if (targetSheet && targetSheet.rows) {
             targetSheet.rows.forEach((row: any, rowIndex: number) => {
                 if (row && row.cells) {
@@ -261,21 +256,18 @@ function App() {
       console.log('Context Range:', selectedRange);
       
       try {
-        // Add the user's message to the UI
         setMessages(prevMessages => [
           ...prevMessages,
           { text: userInput, isUser: true }
         ]);
         
-        // Check if API key is available
         const apiKey = process.env.REACT_APP_OPENAI_API_KEY;
         if (!apiKey) {
           console.error("OpenAI API key is missing. Check your environment variables.");
-          throw new Error("OpenAI API key is not configured. Please check your environment variables.");
+          throw new Error("OpenAI API key is not configured.");
         }
         console.log("API Key available:", apiKey ? "Yes" : "No");
         
-        // Prepare the context message
         let contextMessage = "I'm working with a spreadsheet. ";
         if (selectedRange) {
           contextMessage += `I've selected the range ${selectedRange}. `;
@@ -327,10 +319,8 @@ function App() {
 
         console.log('OpenAI API Response:', response.data);
 
-        // Handle the response
         const message = response.data.choices[0].message;
         
-        // Add the assistant's response to the UI if there's content
         if (message.content) {
           setMessages(prevMessages => [
             ...prevMessages,
@@ -338,12 +328,10 @@ function App() {
           ]);
         }
         
-        // Handle tool calls if any
         const toolCalls = message.tool_calls || [];
         console.log('Tool calls:', toolCalls);
         
         if (toolCalls.length > 0) {
-          // Add a message indicating that functions are being called
           setMessages(prevMessages => [
             ...prevMessages,
             { text: "Processing your request...", isUser: false }
@@ -358,7 +346,6 @@ function App() {
             const data = getAdditionalData();
             console.log('Additional data fetched:', data);
             
-            // Add a message about the additional data
             setMessages(prevMessages => [
               ...prevMessages,
               { text: "Additional data fetched from another worksheet.", isUser: false }
@@ -367,7 +354,6 @@ function App() {
             console.log('Calling fetchSpreadsheetUpdates with user input:', userInput);
             const result = await fetchSpreadsheetUpdates(userInput, spreadsheetData, selectedRange);
             
-            // Add a message about the update
             setMessages(prevMessages => [
               ...prevMessages,
               { text: result.message || "Spreadsheet has been updated.", isUser: false }
@@ -384,7 +370,6 @@ function App() {
           }
         }
         
-        // If there were tool calls but no content, add a generic response
         if (toolCalls.length > 0 && !message.content) {
           setMessages(prevMessages => [
             ...prevMessages,
@@ -395,7 +380,6 @@ function App() {
       } catch (error: any) {
         console.error('Error processing request:', error);
         
-        // Add more detailed error information
         let errorMessage = "There was an error processing your request.";
         if (error.response) {
           errorMessage += ` Status: ${error.response.status}`;
@@ -425,12 +409,9 @@ function App() {
         data.headers,
         ...data.data
       ];
-      // Get last used row index (zero-based)
       const lastRow = sheet.usedRange?.rowIndex || 0;
-      // Calculate starting row
       const startRow = lastRow > 0 ? lastRow + 2 : 0;
   
-      // Convert array data to cell updates
       arrayData.forEach((row: string[], rowIndex: number) => {
         row.forEach((value: string, colIndex: number) => {
           const cellAddress = `${String.fromCharCode(65 + colIndex)}${startRow + rowIndex + 1}`;
@@ -438,7 +419,6 @@ function App() {
         });
       });
   
-      // Set column widths
       if (arrayData[0]) {
         spreadsheet.setColWidth(0, arrayData[0].length - 1, 120);
       }

@@ -40,11 +40,9 @@ export async function handleResearchRequest(query: string): Promise<PerplexityRe
     const data = await response.json();
     const content = data.choices[0].message.content;
 
-    // Parse the response to separate the explanation and structured data
     let structuredData;
     let explanation = content;
 
-    // Try to extract JSON from the response
     const jsonMatch = content.match(/```json\n([\s\S]*?)\n```/);
     if (jsonMatch) {
       try {

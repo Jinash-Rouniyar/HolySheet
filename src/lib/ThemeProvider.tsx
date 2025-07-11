@@ -25,10 +25,8 @@ export function ThemeProvider({
   useEffect(() => {
     const root = window.document.documentElement;
     
-    // Remove previous theme attribute
     root.removeAttribute(attribute);
 
-    // Apply new theme
     if (theme === 'system') {
       const systemTheme = window.matchMedia('(prefers-color-scheme: dark)').matches
         ? 'dark'
@@ -51,7 +49,6 @@ export function ThemeProvider({
     }
   }, [theme, attribute]);
 
-  // Listen for system theme changes
   useEffect(() => {
     if (theme === 'system') {
       const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');

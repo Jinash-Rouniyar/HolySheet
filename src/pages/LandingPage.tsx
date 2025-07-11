@@ -7,7 +7,6 @@ import CTA from '../components/CTA';
 import Footer from '../components/Footer';
 
 const LandingPage = () => {
-  // Smooth scroll functionality
   useEffect(() => {
     const handleAnchorClick = (e: MouseEvent) => {
       const target = e.target as HTMLElement;

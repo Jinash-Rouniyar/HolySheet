@@ -42,17 +42,14 @@ const DataVisualizer: React.FC<DataVisualizerProps> = ({ spreadsheetData, isOpen
   };
 
   const hasNumericColumns = (data: any) => {
-    // Implement logic to check for numeric columns
-    return true; // Placeholder
+    return true; 
   };
 
   const hasCategoricalColumns = (data: any) => {
-    // Implement logic to check for categorical columns
-    return true; // Placeholder
+    return true; 
   };
 
   const createLineChart = (data: any): ChartConfig => {
-    // Example line chart configuration
     return {
       type: 'line',
       data: {
@@ -77,7 +74,6 @@ const DataVisualizer: React.FC<DataVisualizerProps> = ({ spreadsheetData, isOpen
   };
 
   const createBarChart = (data: any): ChartConfig => {
-    // Example bar chart configuration
     return {
       type: 'bar',
       data: {
@@ -106,7 +102,6 @@ const DataVisualizer: React.FC<DataVisualizerProps> = ({ spreadsheetData, isOpen
   };
 
   const createPieChart = (data: any): ChartConfig => {
-    // Example pie chart configuration
     return {
       type: 'pie',
       data: {
