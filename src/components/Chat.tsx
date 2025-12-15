@@ -1,12 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import './Chat.css';
-import { extractJsonFromMarkdown } from '../utils/parser';
 
 interface Message {
     text: string;
     isUser: boolean;
-    jsonData?: any;
 }
 
 interface ChatProps {
@@ -14,15 +12,12 @@ interface ChatProps {
     onClose: () => void;
     onSendRequest: (userInput: string, spreadsheetData: Record<string, string>, selectedRange: string | null) => void;
     messages: Message[];
-    onDataReceived?: (data: any) => void;
     selectedRange?: string | null | undefined;
     setSelectedRange: React.Dispatch<React.SetStateAction<string>>;
 }
 
-const Chat: React.FC<ChatProps> = ({ isOpen, onClose, onSendRequest, messages, onDataReceived, selectedRange, setSelectedRange }) => {
+const Chat: React.FC<ChatProps> = ({ isOpen, onClose, onSendRequest, messages, selectedRange, setSelectedRange }) => {
     const [inputValue, setInputValue] = useState('');
-    const [isResearchMode, setIsResearchMode] = useState(false);
-    const [isLoading, setIsLoading] = useState(false);
     const [localMessages, setLocalMessages] = useState<Message[]>([
         {
             text: "Hello! I'm Celina, your spreadsheet agent. How can I help you today?",
@@ -54,66 +49,6 @@ const Chat: React.FC<ChatProps> = ({ isOpen, onClose, onSendRequest, messages, o
         adjustTextareaHeight();
     }, [inputValue]);
 
-    const performResearch = async (query: string) => {
-        setIsLoading(true);
-        try {
-            const endpoint = '/api/research';
-            
-            console.log('Making research request to:', endpoint);
-            
-            const response = await fetch(endpoint, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ query }),
-            });
-
-            console.log('Response status:', response.status);
-            console.log('Response headers:', Object.fromEntries(response.headers));
-            
-            if (!response.ok) {
-                const errorText = await response.text();
-                console.error('API error response:', errorText);
-                throw new Error(`API request failed: ${response.status} ${response.statusText} - ${errorText}`);
-            }
-            
-            let data;
-            try {
-                data = await response.json();
-                console.log('Parsed API response:', data);
-            } catch (parseError: unknown) {
-                const responseText = await response.text();
-                console.error('JSON parse error. Raw response:', responseText);
-                throw new Error(`Failed to parse API response as JSON: ${parseError instanceof Error ? parseError.message : String(parseError)}`);
-            }
-
-            const { markdown, jsonData } = extractJsonFromMarkdown(data.response);
-
-            const researchResponse: Message = {
-                text: markdown,
-                isUser: false,
-                jsonData,
-            };
-
-            setLocalMessages(prev => [...prev, researchResponse]);
-
-            if (jsonData && onDataReceived) {
-                onDataReceived(jsonData);
-            }
-        } catch (error) {
-            console.error('Research error:', error);
-            setLocalMessages(prev => [...prev, {
-                text: error instanceof Error
-                    ? `Error: ${error.message}`
-                    : 'An unexpected error occurred while researching. Please try again.',
-                isUser: false,
-            }]);
-        } finally {
-            setIsLoading(false);
-        }
-    };
-
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!inputValue.trim()) return;
@@ -124,40 +59,50 @@ const Chat: React.FC<ChatProps> = ({ isOpen, onClose, onSendRequest, messages, o
         };
 
         setLocalMessages(prev => [...prev, newMessage]);
-
-        if (isResearchMode) {
-            await performResearch(inputValue);
-        } else {
-            onSendRequest(inputValue, getSpreadsheetData(), selectedRange === undefined ? null : selectedRange);
-        }
-
+        onSendRequest(inputValue, {}, selectedRange === undefined || selectedRange === '' ? null : selectedRange);
         setInputValue('');
     };
 
-    const getSpreadsheetData = (): Record<string, string> => {
-        const spreadsheet = document.querySelector('.e-spreadsheet') as any;
-        const data: Record<string, string> = {};
-        if (spreadsheet) {
-            const sheet = spreadsheet.ej2_instances[0].sheets[0];
-            sheet.rows.forEach((row: any, rowIndex: number) => {
-                if (row && row.cells) {
-                    row.cells.forEach((cell: any, cellIndex: number) => {
-                        if (cell && cell.value) {
-                            const cellAddress = `${String.fromCharCode(65 + cellIndex)}${rowIndex + 1}`;
-                            data[cellAddress] = cell.value;
-                        }
-                    });
-                }
-            });
-        }
-        return data;
-    };
-
     const handleAddContext = () => {
-      if (selectedRange) {
-        setSelectedRange((prevRange) => selectedRange);
-      }
-  };
+        try {
+            const univerAPI = (window as any).univerAPI;
+            if (!univerAPI) {
+                console.warn('Univer API is not available');
+                return;
+            }
+
+            const fWorkbook = univerAPI.getActiveWorkbook();
+            if (!fWorkbook) {
+                console.warn('No active workbook found');
+                return;
+            }
+
+            const fWorksheet = fWorkbook.getActiveSheet();
+            if (!fWorksheet) {
+                console.warn('No active sheet found');
+                return;
+            }
+
+            const fSelection = fWorksheet.getSelection();
+            if (!fSelection) {
+                console.warn('No selection found');
+                return;
+            }
+
+            const activeRange = fSelection.getActiveRange();
+            if (!activeRange) {
+                console.warn('No active range found');
+                return;
+            }
+
+            const rangeNotation = activeRange.getA1Notation();
+            if (rangeNotation) {
+                setSelectedRange(rangeNotation);
+            }
+        } catch (error) {
+            console.error('Error getting cell selection:', error);
+        }
+    };
 
   const handleClearContext = () => {
       setSelectedRange("");
@@ -187,43 +132,9 @@ const Chat: React.FC<ChatProps> = ({ isOpen, onClose, onSendRequest, messages, o
                                 ) : (
                                     <ReactMarkdown>{message.text}</ReactMarkdown>
                                 )}
-                                {message.jsonData && (
-                                    <div className="data-preview">
-                                        <div className="data-preview-header">
-                                            <span>Data Preview</span>
-                                            <button
-                                                className="populate-button"
-                                                onClick={() => onDataReceived?.(message.jsonData)}
-                                            >
-                                                Populate Spreadsheet
-                                            </button>
-                                        </div>
-                                        <div className="data-table">
-                                            {message.jsonData.headers && (
-                                                <div className="table-row header">
-                                                    {message.jsonData.headers.map((header: string, i: number) => (
-                                                        <div key={i} className="table-cell">{header}</div>
-                                                    ))}
-                                                </div>
-                                            )}
-                                            {message.jsonData.data && message.jsonData.data.map((row: any[], i: number) => (
-                                                <div key={i} className="table-row">
-                                                    {row.map((cell, j) => (
-                                                        <div key={j} className="table-cell">{cell}</div>
-                                                    ))}
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </div>
-                                )}
                             </div>
                         </div>
                     ))}
-                    {isLoading && (
-                        <div className="loading-indicator">
-                            Researching...
-                        </div>
-                    )}
                 </div>
                 <div className="chat-footer">
                     <div className="context-controls">
@@ -239,17 +150,6 @@ const Chat: React.FC<ChatProps> = ({ isOpen, onClose, onSendRequest, messages, o
                                 </button>
                             )
                         )}
-                        <div className="research-toggle">
-                            <label className="toggle-switch">
-                                <input
-                                    type="checkbox"
-                                    checked={isResearchMode}
-                                    onChange={() => setIsResearchMode(!isResearchMode)}
-                                />
-                                <span className="toggle-slider"></span>
-                            </label>
-                            <span className="toggle-label">Deep Search</span>
-                        </div>
                     </div>
                     <form onSubmit={handleSubmit} className="chat-input-container">
                         <div className="input-wrapper">
@@ -263,12 +163,12 @@ const Chat: React.FC<ChatProps> = ({ isOpen, onClose, onSendRequest, messages, o
                                         handleSubmit(e);
                                     }
                                 }}
-                                placeholder={isResearchMode ? "Ask anything to research..." : "Ask cellina to do anything"}
+                                placeholder="Ask cellina to do anything"
                                 className="chat-input"
                                 rows={2}
                             />
-                            <button type="submit" className="inline-send-button" disabled={isLoading}>
-                                {isLoading ? '...' : '➤'}
+                            <button type="submit" className="inline-send-button">
+                                ➤
                             </button>
                         </div>
                     </form>

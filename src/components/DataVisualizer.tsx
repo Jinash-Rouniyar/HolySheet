@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Line, Bar, Pie } from 'react-chartjs-2';
 import './DataVisualizer.css';
 
@@ -18,38 +18,36 @@ interface ChartConfig {
 const DataVisualizer: React.FC<DataVisualizerProps> = ({ spreadsheetData, isOpen, onClose }) => {
   const [chartConfigs, setChartConfigs] = useState<ChartConfig[]>([]);
 
+  const analyzeAndCreateCharts = useCallback((_data: any) => {
+    const configs: ChartConfig[] = [];
+    
+    if (hasNumericColumns()) {
+      configs.push(createLineChart());
+      configs.push(createBarChart());
+    }
+
+    if (hasCategoricalColumns()) {
+      configs.push(createPieChart());
+    }
+
+    setChartConfigs(configs);
+  }, []);
+
   useEffect(() => {
     if (spreadsheetData) {
       analyzeAndCreateCharts(spreadsheetData);
     }
-  }, [spreadsheetData]);
+  }, [spreadsheetData, analyzeAndCreateCharts]);
 
-  const analyzeAndCreateCharts = (data: any) => {
-    const configs: ChartConfig[] = [];
-    
-    // Check if data has numeric columns for trends
-    if (hasNumericColumns(data)) {
-      configs.push(createLineChart(data));
-      configs.push(createBarChart(data));
-    }
-
-    // Check if data has categorical columns for distribution
-    if (hasCategoricalColumns(data)) {
-      configs.push(createPieChart(data));
-    }
-
-    setChartConfigs(configs);
-  };
-
-  const hasNumericColumns = (data: any) => {
+  const hasNumericColumns = () => {
     return true; 
   };
 
-  const hasCategoricalColumns = (data: any) => {
+  const hasCategoricalColumns = () => {
     return true; 
   };
 
-  const createLineChart = (data: any): ChartConfig => {
+  const createLineChart = (): ChartConfig => {
     return {
       type: 'line',
       data: {
@@ -73,7 +71,7 @@ const DataVisualizer: React.FC<DataVisualizerProps> = ({ spreadsheetData, isOpen
     };
   };
 
-  const createBarChart = (data: any): ChartConfig => {
+  const createBarChart = (): ChartConfig => {
     return {
       type: 'bar',
       data: {
@@ -101,7 +99,7 @@ const DataVisualizer: React.FC<DataVisualizerProps> = ({ spreadsheetData, isOpen
     };
   };
 
-  const createPieChart = (data: any): ChartConfig => {
+  const createPieChart = (): ChartConfig => {
     return {
       type: 'pie',
       data: {

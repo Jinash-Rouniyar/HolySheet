@@ -1,4 +1,3 @@
-import React from 'react';
 import { 
   MessageSquare, 
   BarChart, 
@@ -24,8 +23,8 @@ const features = [
   },
   {
     icon: <Globe className="h-6 w-6" />,
-    title: "Fetch Data",
-    description: "Enable Deep Search and ask to fetch data from the web and populate it into the spreadsheet."
+    title: "AI-Powered Automation",
+    description: "Automate repetitive tasks and data processing with intelligent AI assistance."
   }
 ];
 
