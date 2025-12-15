@@ -18,24 +18,20 @@ interface ChatProps {
 
 const Chat: React.FC<ChatProps> = ({ isOpen, onClose, onSendRequest, messages, selectedRange, setSelectedRange }) => {
     const [inputValue, setInputValue] = useState('');
-    const [localMessages, setLocalMessages] = useState<Message[]>([
-        {
-            text: "Hello! I'm Celina, your spreadsheet agent. How can I help you today?",
-            isUser: false
-        }
-    ]);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
+    const messagesEndRef = useRef<HTMLDivElement>(null);
+
+    const displayMessages =
+        messages.length === 0
+            ? [{
+                text: "Hello! I'm Celina, your spreadsheet agent. How can I help you today?",
+                isUser: false,
+            }]
+            : messages;
 
     useEffect(() => {
-        if (messages.length > 0) {
-            setLocalMessages(prev => {
-                if (prev.length === 1 && !prev[0].isUser) {
-                    return [...prev, ...messages];
-                }
-                return messages;
-            });
-        }
-    }, [messages]);
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, [displayMessages.length, displayMessages[displayMessages.length - 1]?.text]);
 
     const adjustTextareaHeight = () => {
         const textarea = textareaRef.current;
@@ -53,12 +49,7 @@ const Chat: React.FC<ChatProps> = ({ isOpen, onClose, onSendRequest, messages, s
         e.preventDefault();
         if (!inputValue.trim()) return;
 
-        const newMessage: Message = {
-            text: inputValue,
-            isUser: true,
-        };
-
-        setLocalMessages(prev => [...prev, newMessage]);
+        // App.tsx adds user message to messages state, so we just call onSendRequest
         onSendRequest(inputValue, {}, selectedRange === undefined || selectedRange === '' ? null : selectedRange);
         setInputValue('');
     };
@@ -121,7 +112,7 @@ const Chat: React.FC<ChatProps> = ({ isOpen, onClose, onSendRequest, messages, s
                     <button onClick={onClose} className="close-button">×</button>
                 </div>
                 <div className="chat-messages">
-                    {localMessages.map((message, index) => (
+                    {displayMessages.map((message, index) => (
                         <div
                             key={index}
                             className={`message ${message.isUser ? 'user-message' : 'assistant-message'}`}
@@ -135,6 +126,7 @@ const Chat: React.FC<ChatProps> = ({ isOpen, onClose, onSendRequest, messages, s
                             </div>
                         </div>
                     ))}
+                    <div ref={messagesEndRef} />
                 </div>
                 <div className="chat-footer">
                     <div className="context-controls">

@@ -26,6 +26,12 @@ const viteConfig = ({ mode }: { mode: string }) => {
     server: {
       port: 3002,
       host: true,
+      proxy: {
+        '/api': {
+          target: 'http://localhost:5000',
+          changeOrigin: true,
+        },
+      },
     },
     build: {
       outDir: 'build',

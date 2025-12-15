@@ -9,19 +9,6 @@ import { TooltipProvider } from './components/ui/tooltip';
 import { Toaster } from './components/ui/toaster';
 import { Toaster as Sonner } from './components/ui/sonner';
 
-// Import Syncfusion CSS files
-import '@syncfusion/ej2-base/styles/material.css';
-import '@syncfusion/ej2-inputs/styles/material.css';
-import '@syncfusion/ej2-buttons/styles/material.css';
-import '@syncfusion/ej2-splitbuttons/styles/material.css';
-import '@syncfusion/ej2-lists/styles/material.css';
-import '@syncfusion/ej2-navigations/styles/material.css';
-import '@syncfusion/ej2-popups/styles/material.css';
-import '@syncfusion/ej2-dropdowns/styles/material.css';
-import '@syncfusion/ej2-grids/styles/material.css';
-import '@syncfusion/ej2-spreadsheet/styles/material.css';
-import '@syncfusion/ej2-react-spreadsheet/styles/material.css';
-
 import LandingPage from './pages/LandingPage';
 import ExcelApp from './pages/ExcelApp';
 import NotFound from './pages/NotFound';
