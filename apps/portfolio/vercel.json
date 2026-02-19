@@ -3,8 +3,12 @@
   "version": 2,
   "rewrites": [
     {
+      "source": "/spreadsheet",
+      "destination": "https://holy-sheet-three.vercel.app/"
+    },
+    {
       "source": "/spreadsheet/:path*",
-      "destination": "https://holy-sheet-three.vercel.app/spreadsheet/:path*"
+      "destination": "https://holy-sheet-three.vercel.app/:path*"
     },
     {
       "source": "/api/:path*",
