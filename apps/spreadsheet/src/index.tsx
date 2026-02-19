@@ -39,7 +39,7 @@ root.render(
         <TooltipProvider>
           <Toaster />
           <Sonner />
-          <BrowserRouter>
+          <BrowserRouter basename="/spreadsheet">
             <Routes>
               <Route path="/" element={<LandingPage />} />
               <Route path="/app" element={<ExcelApp />} />

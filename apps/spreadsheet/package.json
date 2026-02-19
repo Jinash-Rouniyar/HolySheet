@@ -1,7 +1,8 @@
 {
-  "name": "holysheet",
+  "name": "holysheet-spreadsheet",
   "version": "0.1.0",
   "private": true,
+  "homepage": "/spreadsheet",
   "dependencies": {
     "@craco/craco": "^7.1.0",
     "@hookform/resolvers": "^3.9.0",
@@ -79,9 +80,7 @@
     "zod": "^3.23.8"
   },
   "scripts": {
-    "start": "set PORT=3002 && react-scripts start",
-    "server": "node server.js",
-    "dev": "concurrently \"npm run server\" \"npm run start\"",
+    "start": "react-scripts start",
     "build": "react-scripts build",
     "lint": "eslint src --ext .js,.jsx,.ts,.tsx",
     "test": "react-scripts test",
@@ -111,7 +110,6 @@
     "@types/axios": "^0.14.4",
     "@types/string-similarity": "^4.0.2",
     "autoprefixer": "^10.4.20",
-    "concurrently": "^9.1.2",
     "postcss": "^8.4.47",
     "tailwindcss": "^3.4.11"
   }
