@@ -1,14 +1,21 @@
-name: CI
+name: Spreadsheet CI
 
 on:
   push:
     branches: [main, master]
+    paths:
+      - 'apps/spreadsheet/**'
   pull_request:
     branches: [main, master]
+    paths:
+      - 'apps/spreadsheet/**'
 
 jobs:
   lint-and-build:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/spreadsheet
     steps:
       - uses: actions/checkout@v4
 
@@ -17,6 +24,7 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
+          cache-dependency-path: apps/spreadsheet/package-lock.json
 
       - name: Install dependencies
         run: npm ci

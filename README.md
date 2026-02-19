@@ -1,38 +1,41 @@
-# **EJ2 Spreadsheet Application with AI Assistance**
+# Polyglot Monorepo
 
-## ✨ Overview
-The **EJ2 Spreadsheet Application** integrates AI-powered features to enhance spreadsheet functionality. With natural language prompts, users can:  
-✔️ Automatically fill data.  
-✔️ Generate insightful graphs.  
-✔️ Parse information from the internet to enrich worksheets.  
+This repository contains multiple independent applications under `apps/`.
 
-## 🚀 Live Demo
-Experience the application in action:  
-🔗 [Live Demo](https://rembrance.co)  
+## Structure
 
-🎥 Watch the demo:  
-[![Loom Video](https://cdn.loom.com/sessions/thumbnails/64c615cd07934bda9f2982b2e1e67e2d.jpg)](https://www.loom.com/share/64c615cd07934bda9f2982b2e1e67e2d?sid=3b67b2de-13d6-45cd-a422-8ae6800b1caa)  
-
-## Features
-✅ AI-assisted data entry and completion  
-✅ Smart graph generation based on textual instructions  
-✅ Web parsing capabilities to enrich spreadsheet data  
-✅ Seamless and intuitive user experience  
-✅ Real-time collaboration and editing support  
-✅ Lightweight and efficient performance  
-
-## 🛠️ Getting Started
-
-### **Run with Docker**
-Easily deploy the application using Docker:
-
-```sh
-docker-compose up --build;
 ```
-### **Run the application locally**
-Test it out on your developmental Server
+apps/
+  portfolio/          Personal portfolio site (gateway)
+  spreadsheet/        Celina AI Spreadsheet (React)
+  spreadsheet-api/    Spreadsheet backend API (Express)
+```
 
-```sh
+## Apps
+
+| App | Description | Local Port |
+|-----|------------|------------|
+| `apps/portfolio` | Portfolio landing page & gateway | 3000 |
+| `apps/spreadsheet` | AI-powered spreadsheet app | 3002 |
+| `apps/spreadsheet-api` | Express API for research/data | 5000 |
+
+## Getting started
+
+Each app is independent. `cd` into the app folder and run:
+
+```bash
 npm install
-npm run dev
+npm start
 ```
+
+## CI/CD
+
+Each app has its own GitHub Actions workflow that triggers only when files in that app change.
+
+## Vercel deployment
+
+Each app is deployed as a separate Vercel project with a different **Root Directory**:
+
+- **Portfolio (gateway):** `apps/portfolio` -- owns the custom domain, rewrites to other apps
+- **Spreadsheet:** `apps/spreadsheet`
+- **Spreadsheet API:** `apps/spreadsheet-api`

@@ -1,0 +1,14 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "version": 2,
+  "rewrites": [
+    {
+      "source": "/spreadsheet/:path*",
+      "destination": "https://holysheet-spreadsheet.vercel.app/spreadsheet/:path*"
+    },
+    {
+      "source": "/api/:path*",
+      "destination": "https://api-holy-sheet.vercel.app/api/:path*"
+    }
+  ]
+}
