@@ -1,5 +1,4 @@
 import React from 'react';
-import { ArrowRight } from 'lucide-react';
 import workOne from '../assets/workOne.jpg';
 import workTwo from '../assets/workTwo.jpg';
 import chart from '../assets/chart.jpg';

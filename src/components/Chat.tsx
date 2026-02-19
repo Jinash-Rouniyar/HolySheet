@@ -155,7 +155,7 @@ const Chat: React.FC<ChatProps> = ({ isOpen, onClose, onSendRequest, messages, o
 
     const handleAddContext = () => {
       if (selectedRange) {
-        setSelectedRange((prevRange) => selectedRange);
+        setSelectedRange((_prevRange) => selectedRange);
       }
   };
 

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Line, Bar, Pie } from 'react-chartjs-2';
 import './DataVisualizer.css';
 
@@ -18,13 +18,7 @@ interface ChartConfig {
 const DataVisualizer: React.FC<DataVisualizerProps> = ({ spreadsheetData, isOpen, onClose }) => {
   const [chartConfigs, setChartConfigs] = useState<ChartConfig[]>([]);
 
-  useEffect(() => {
-    if (spreadsheetData) {
-      analyzeAndCreateCharts(spreadsheetData);
-    }
-  }, [spreadsheetData]);
-
-  const analyzeAndCreateCharts = (data: any) => {
+  const analyzeAndCreateCharts = useCallback((data: any) => {
     const configs: ChartConfig[] = [];
     
     // Check if data has numeric columns for trends
@@ -39,17 +33,23 @@ const DataVisualizer: React.FC<DataVisualizerProps> = ({ spreadsheetData, isOpen
     }
 
     setChartConfigs(configs);
-  };
+  }, []);
 
-  const hasNumericColumns = (data: any) => {
+  useEffect(() => {
+    if (spreadsheetData) {
+      analyzeAndCreateCharts(spreadsheetData);
+    }
+  }, [spreadsheetData, analyzeAndCreateCharts]);
+
+  const hasNumericColumns = (_data: any) => {
     return true; 
   };
 
-  const hasCategoricalColumns = (data: any) => {
+  const hasCategoricalColumns = (_data: any) => {
     return true; 
   };
 
-  const createLineChart = (data: any): ChartConfig => {
+  const createLineChart = (_data: any): ChartConfig => {
     return {
       type: 'line',
       data: {
@@ -73,7 +73,7 @@ const DataVisualizer: React.FC<DataVisualizerProps> = ({ spreadsheetData, isOpen
     };
   };
 
-  const createBarChart = (data: any): ChartConfig => {
+  const createBarChart = (_data: any): ChartConfig => {
     return {
       type: 'bar',
       data: {
@@ -101,7 +101,7 @@ const DataVisualizer: React.FC<DataVisualizerProps> = ({ spreadsheetData, isOpen
     };
   };
 
-  const createPieChart = (data: any): ChartConfig => {
+  const createPieChart = (_data: any): ChartConfig => {
     return {
       type: 'pie',
       data: {
