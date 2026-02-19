@@ -27,6 +27,9 @@ import ExcelApp from './pages/ExcelApp';
 import NotFound from './pages/NotFound';
 
 const queryClient = new QueryClient();
+const basename = window.location.pathname.startsWith('/spreadsheet')
+  ? '/spreadsheet'
+  : '/';
 
 const root = ReactDOM.createRoot(
   document.getElementById('root') as HTMLElement
@@ -39,7 +42,7 @@ root.render(
         <TooltipProvider>
           <Toaster />
           <Sonner />
-          <BrowserRouter basename="/spreadsheet">
+          <BrowserRouter basename={basename}>
             <Routes>
               <Route path="/" element={<LandingPage />} />
               <Route path="/app" element={<ExcelApp />} />
