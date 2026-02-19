@@ -4,7 +4,7 @@
   "rewrites": [
     {
       "source": "/spreadsheet/:path*",
-      "destination": "https://holysheet-spreadsheet.vercel.app/spreadsheet/:path*"
+      "destination": "https://holy-sheet-three.vercel.app/spreadsheet/:path*"
     },
     {
       "source": "/api/:path*",
