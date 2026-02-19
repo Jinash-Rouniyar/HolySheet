@@ -18,8 +18,8 @@ app.use(cors({
 }));
 app.use(express.json());
 
-// Serve static files from the React app in production
-if (process.env.NODE_ENV === 'production') {
+// Serve static files from the React app in production (only when not on Vercel - backend is separate there)
+if (process.env.NODE_ENV === 'production' && !process.env.VERCEL) {
   app.use(express.static(path.join(__dirname, 'build')));
 }
 
@@ -116,16 +116,23 @@ app.post('/api/research', async (req, res) => {
   }
 });
 
-// For any other request, serve the React app
-app.get('*', (req, res) => {
-  if (process.env.NODE_ENV === 'production') {
-    res.sendFile(path.join(__dirname, 'build', 'index.html'));
-  } else {
-    res.json({ message: 'In development mode, this would serve the React app' });
-  }
-});
+// For any other request, serve the React app (only when not on Vercel)
+if (!process.env.VERCEL) {
+  app.get('*', (req, res) => {
+    if (process.env.NODE_ENV === 'production') {
+      res.sendFile(path.join(__dirname, 'build', 'index.html'));
+    } else {
+      res.json({ message: 'In development mode, this would serve the React app' });
+    }
+  });
+}
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-}); 
+
+// Export the app for Vercel (serverless); listen only when running locally
+module.exports = app;
+if (!process.env.VERCEL) {
+  app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+  });
+} 
