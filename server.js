@@ -18,6 +18,15 @@ app.use(
 );
 app.use(express.json());
 
+// Request logging middleware for all /api/sheet/* routes
+app.use("/api/sheet", (req, res, next) => {
+  console.log(`\n[${new Date().toISOString()}] ${req.method} ${req.path}`);
+  if (req.method === "POST" && req.body) {
+    console.log("Request body:", JSON.stringify(req.body, null, 2));
+  }
+  next();
+});
+
 if (process.env.NODE_ENV === "production") {
   app.use(express.static(path.join(__dirname, "build")));
 }
@@ -137,6 +146,148 @@ app.post("/api/create-agent", async (req, res) => {
     console.error("Error creating agent:", err);
     res.status(500).json({ error: "Error creating agent: " + err.message });
   }
+});
+
+// In-memory queue for spreadsheet operations (in production, use Redis or similar)
+const operationQueue = [];
+
+// POST endpoint to queue a spreadsheet operation
+app.post("/api/sheet/operation", (req, res) => {
+  console.log("\n=== [SHEET OPERATION REQUEST] ===");
+  console.log("Timestamp:", new Date().toISOString());
+  console.log("Method:", req.method);
+  console.log("URL:", req.url);
+  console.log("Headers:", JSON.stringify(req.headers, null, 2));
+  console.log("Body (raw):", JSON.stringify(req.body, null, 2));
+  console.log("Body type:", typeof req.body);
+  console.log("Body keys:", req.body ? Object.keys(req.body) : "null");
+  
+  // Handle both direct operation and context_data wrapped (from WebhookStep)
+  let operation = req.body;
+  if (operation && operation.context_data) {
+    console.log("⚠️  Request wrapped in context_data, unwrapping...");
+    operation = operation.context_data;
+  }
+  
+  console.log("Extracted operation:", JSON.stringify(operation, null, 2));
+  
+  if (!operation || !operation.type) {
+    console.log("❌ ERROR: Operation missing or missing 'type' field");
+    console.log("Operation received:", operation);
+    return res.status(400).json({ error: "Operation must have a 'type' field" });
+  }
+
+  const validTypes = [
+    "get_sheets",
+    "get_range_data",
+    "set_range_data",
+    "set_range_style",
+    "rename_sheet",
+    "create_sheet",
+    "insert_rows",
+    "insert_columns",
+    "set_cell_dimensions",
+  ];
+
+  if (!validTypes.includes(operation.type)) {
+    console.log(`❌ ERROR: Invalid operation type: ${operation.type}`);
+    return res.status(400).json({ 
+      error: `Invalid operation type. Must be one of: ${validTypes.join(", ")}` 
+    });
+  }
+
+  const operationId = `op_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  const queuedOp = {
+    id: operationId,
+    operation,
+    timestamp: new Date().toISOString(),
+    status: "pending",
+  };
+
+  operationQueue.push(queuedOp);
+  
+  console.log("✅ Operation queued successfully:");
+  console.log("  - ID:", operationId);
+  console.log("  - Type:", operation.type);
+  console.log("  - Full operation:", JSON.stringify(operation, null, 2));
+  console.log("  - Queue size:", operationQueue.length);
+  console.log("  - Pending operations:", operationQueue.filter(op => op.status === "pending").length);
+  console.log("=== [END REQUEST] ===\n");
+
+  res.status(200).json({ 
+    success: true, 
+    operationId,
+    message: `Operation ${operation.type} queued successfully` 
+  });
+});
+
+// GET endpoint for frontend to poll and retrieve pending operations
+app.get("/api/sheet/operations/pending", (req, res) => {
+  const pending = operationQueue.filter(op => op.status === "pending");
+  console.log("\n=== [POLL REQUEST] ===");
+  console.log("Timestamp:", new Date().toISOString());
+  console.log("Pending operations count:", pending.length);
+  if (pending.length > 0) {
+    console.log("Pending operations:");
+    pending.forEach((op, idx) => {
+      console.log(`  ${idx + 1}. ID: ${op.id}, Type: ${op.operation.type}, Queued: ${op.timestamp}`);
+    });
+  }
+  console.log("Total queue size:", operationQueue.length);
+  console.log("=== [END POLL] ===\n");
+  res.status(200).json({ operations: pending });
+});
+
+// POST endpoint to mark operations as completed
+app.post("/api/sheet/operations/complete", (req, res) => {
+  const { operationIds } = req.body;
+  
+  console.log("\n=== [COMPLETE REQUEST] ===");
+  console.log("Timestamp:", new Date().toISOString());
+  console.log("Operation IDs to complete:", operationIds);
+  
+  if (!Array.isArray(operationIds)) {
+    console.log("❌ ERROR: operationIds is not an array");
+    return res.status(400).json({ error: "operationIds must be an array" });
+  }
+
+  let completed = 0;
+  operationIds.forEach(id => {
+    const op = operationQueue.find(o => o.id === id && o.status === "pending");
+    if (op) {
+      op.status = "completed";
+      op.completedAt = new Date().toISOString();
+      completed++;
+      console.log(`  ✅ Completed: ${id} (${op.operation.type})`);
+    } else {
+      console.log(`  ⚠️  Not found or already completed: ${id}`);
+    }
+  });
+
+  console.log(`Total completed: ${completed}/${operationIds.length}`);
+  console.log("Remaining pending:", operationQueue.filter(op => op.status === "pending").length);
+  console.log("=== [END COMPLETE] ===\n");
+
+  res.status(200).json({ 
+    success: true, 
+    completed,
+    message: `Marked ${completed} operation(s) as completed` 
+  });
+});
+
+// GET endpoint to clear completed operations (optional cleanup)
+app.delete("/api/sheet/operations/completed", (req, res) => {
+  const before = operationQueue.length;
+  const filtered = operationQueue.filter(op => op.status !== "completed");
+  operationQueue.length = 0;
+  operationQueue.push(...filtered);
+  const removed = before - operationQueue.length;
+  
+  res.status(200).json({ 
+    success: true, 
+    removed,
+    message: `Cleared ${removed} completed operation(s)` 
+  });
 });
 
 app.post("/api/agent/query", async (req, res) => {
