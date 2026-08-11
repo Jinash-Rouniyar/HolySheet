@@ -228,7 +228,6 @@ function App() {
         <li>3rd Runner Up, Context Engineering Hackathon by Theory Ventures</li>
         <li>1st Prize, Generative AI, Hacklytics 2024; featured on Microsoft’s official LinkedIn and Microsoft ATL pages.</li>
         <li>1st Prize, AI Funhouse, HackGT 2024</li>
-        <li>Recieved invitation to showcase my project at Asia's Largest Tech Festival, Techfest at IIT Bombay</li>
         <li>1st Prize, Hack with Chroma, CalHacks 11.0</li>
         <li>Top 75 Product of the Week on Product Hunt</li>
       </ul>
