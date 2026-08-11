@@ -37,6 +37,21 @@ function App() {
 
       <div className="mb-2 flex items-baseline justify-between gap-6 text-sm text-slate-600">
         <div>
+          <span className="font-semibold text-slate-900">SDE Intern</span>
+          <span className="mx-1">·</span>
+          <span>Amazon Inc.</span>
+        </div>
+        <div className="text-xs tracking-wide text-slate-500 uppercase text-right">
+          May 2026 – Aug. 2026
+        </div>
+      </div>
+      <ul className="list-disc pl-6 mb-4 text-slate-600">
+        <li>Built the luxury stores navigation carousel to refine the search experience</li>
+        <li>Built a daily data pipeline that fetches data from an Andes table, constructs tile data with AWS Lambda, and ingests it into Search&apos;s DynamoDB</li>
+      </ul>
+
+      <div className="mb-2 flex items-baseline justify-between gap-6 text-sm text-slate-600">
+        <div>
           <span className="font-semibold text-slate-900">Developer Relations Intern</span>
           <span className="mx-1">·</span>
           <span>Contextual AI</span>
