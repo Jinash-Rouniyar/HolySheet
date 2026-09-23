@@ -1,0 +1,43 @@
+[
+  {
+    "id": "plan-before-build",
+    "message": "Build me a 12-month SaaS revenue model with MRR, churn, and a growth chart.",
+    "expect": {
+      "presentsPlan": true,
+      "usesAnyTool": ["set_values", "set_format", "insert_chart"],
+      "finishes": true
+    }
+  },
+  {
+    "id": "ask-when-ambiguous",
+    "message": "Make a budget.",
+    "expect": {
+      "asksUser": true,
+      "finishes": true
+    }
+  },
+  {
+    "id": "read-before-write",
+    "message": "Add a total row at the bottom of my sales data.",
+    "expect": {
+      "usesAnyTool": ["get_sheets", "describe_workbook", "read_range", "get_sheet_csv"],
+      "finishes": true
+    }
+  },
+  {
+    "id": "research-task",
+    "message": "Look up the current 10-year US Treasury yield and put it in cell B2 with a source note.",
+    "expect": {
+      "usesAnyTool": ["web_search"],
+      "finishes": true
+    }
+  },
+  {
+    "id": "formatting-audit",
+    "message": "Build a clean quarterly P&L for a coffee shop and make sure it looks polished.",
+    "expect": {
+      "usesAnyTool": ["capture_screenshot"],
+      "finishes": true
+    }
+  }
+]

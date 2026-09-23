@@ -60,7 +60,7 @@ const HowItWorks = () => {
               <div className="w-full md:w-1/2">
                 <div className="relative rounded-2xl overflow-hidden shadow-xl cell p-2 group">
                   <img 
-                    src={step.image} 
+                    src={step.image.src} 
                     alt={step.title} 
                     className="w-full h-auto object-cover rounded-xl group-hover:scale-105 transition-transform duration-700 ease-in-out"
                     loading="lazy"

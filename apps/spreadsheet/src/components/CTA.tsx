@@ -1,13 +1,15 @@
+'use client';
+
 import React from 'react';
 import { Button } from './ui/button';
 import { ArrowRight } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useRouter } from 'next/navigation';
 
 const CTA = () => {
-  const navigate = useNavigate();
+  const router = useRouter();
   
   const handleRedirect = () => {
-    navigate('/app');
+    router.push('/app');
   };
   
   return (

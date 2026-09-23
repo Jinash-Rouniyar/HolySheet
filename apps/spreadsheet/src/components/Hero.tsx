@@ -1,14 +1,16 @@
+'use client';
+
 import React, { useEffect, useRef } from 'react';
 import { Button } from './ui/button';
 import { ArrowRight } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useRouter } from 'next/navigation';
 import celinainterface from '../assets/celinainterface.png';
 
 const Hero = () => {
-  const navigate = useNavigate();
+  const router = useRouter();
 
   const handleGetStarted = () => {
-    navigate('/app');
+    router.push('/app');
   };
 
   const heroRef = useRef<HTMLDivElement>(null);
@@ -95,7 +97,7 @@ const Hero = () => {
         <div className="animate-reveal stagger-5 relative mt-20 max-w-5xl mx-auto">
           <div className="cell rounded-2xl overflow-hidden shadow-2xl p-2">
             <img 
-              src={celinainterface} 
+              src={celinainterface.src} 
               alt="Celina AI Interface" 
               className="w-full h-auto object-cover rounded-xl"
               loading="lazy"

@@ -4,15 +4,11 @@
   "rewrites": [
     {
       "source": "/spreadsheet",
-      "destination": "https://holy-sheet-three.vercel.app/"
+      "destination": "https://celina-app.fly.dev/spreadsheet"
     },
     {
       "source": "/spreadsheet/:path*",
-      "destination": "https://holy-sheet-three.vercel.app/:path*"
-    },
-    {
-      "source": "/api/:path*",
-      "destination": "https://api-holy-sheet.vercel.app/api/:path*"
+      "destination": "https://celina-app.fly.dev/spreadsheet/:path*"
     }
   ]
 }
