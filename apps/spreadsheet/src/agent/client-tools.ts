@@ -1,4 +1,5 @@
 import type { SpreadsheetAdapter } from './SpreadsheetAdapter';
+import { parseJsonIfString } from './coerce';
 
 export interface AdapterToolResult {
   ok: boolean;
@@ -31,18 +32,23 @@ export async function executeAdapterTool(
         return ok(await adapter.describeWorkbook());
       case 'get_sheet_csv':
         return ok({ csv: await adapter.getSheetCsv(args.sheet) });
+      case 'activate_sheet':
+        adapter.activateSheet(args.name);
+        return ok({ active: args.name });
 
       // ---- mutations ----
       case 'set_values': {
-        if (args.cells) {
-          const n = adapter.setValuesMap(args.cells, args.sheet);
+        const cells = parseJsonIfString(args.cells);
+        const values = parseJsonIfString(args.values);
+        if (cells && typeof cells === 'object' && !Array.isArray(cells)) {
+          const n = adapter.setValuesMap(cells as Record<string, unknown>, args.sheet);
           return ok({ cellsWritten: n });
         }
-        if (args.range && args.values) {
-          const n = adapter.setValuesBlock(args.range, args.values, args.sheet);
+        if (args.range && Array.isArray(values)) {
+          const n = adapter.setValuesBlock(args.range, values as unknown[][], args.sheet);
           return ok({ cellsWritten: n });
         }
-        return fail('Provide either `cells` or `range`+`values`.');
+        return fail('Provide either `cells` or `range`+`values` (values must be a 2D array).');
       }
       case 'clear_range':
         adapter.clearRange(args.range);
@@ -89,9 +95,10 @@ export async function executeAdapterTool(
       case 'rename_sheet':
         adapter.renameSheet(args.oldName, args.newName);
         return ok({ renamed: args.newName });
-      case 'insert_chart':
-        adapter.insertChart(args.type, args.range, args.sheet);
-        return ok({ chart: args.type, range: args.range });
+      case 'insert_chart': {
+        const chart = await adapter.insertChart(args.type, args.range, args.sheet);
+        return ok({ chart: args.type, range: args.range, boundRange: chart.range, packed: chart.packed });
+      }
       case 'add_conditional_format':
         adapter.addConditionalFormat(args.range, args.type, args.value, args.format);
         return ok({ range: args.range, type: args.type });

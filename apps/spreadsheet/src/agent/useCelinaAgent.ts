@@ -225,6 +225,11 @@ export function useCelinaAgent(adapter: SpreadsheetAdapter) {
           /* snapshot best-effort */
         }
         const res = await executeAdapterTool(adapter, name, args);
+        if (!res.ok) {
+          // Drop the pre-call snapshot so Undo does not restore a half-built sheet.
+          setUndoStack((prev) => prev.slice(0, -1));
+          undoIndex = undefined;
+        }
         patch(id, (it) =>
           it.kind === 'tool'
             ? {

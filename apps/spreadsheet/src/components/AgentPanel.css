@@ -13,19 +13,22 @@
 
 .celina-fab {
   position: fixed;
-  right: 16px;
-  bottom: 16px;
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
+  right: 0;
+  top: 70%;
+  transform: translateY(-50%);
+  padding: 12px 8px;
+  border-radius: 8px 0 0 8px;
   border: none;
   background: #10a37f;
   color: #fff;
   display: grid;
   place-items: center;
   cursor: pointer;
-  box-shadow: 0 4px 16px rgba(16, 163, 127, 0.35);
+  box-shadow: -2px 0 8px rgba(16, 163, 127, 0.28);
   z-index: 50;
+}
+.celina-fab:hover {
+  background: #0d8f6f;
 }
 
 /* Header */
@@ -201,6 +204,53 @@
   font-weight: 500;
   text-transform: capitalize;
 }
+.celina-tool-count {
+  color: #8a9099;
+  font-size: 11px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+.celina-tool-expand {
+  display: grid;
+  place-items: center;
+  border: none;
+  background: transparent;
+  color: #8a9099;
+  cursor: pointer;
+  padding: 0;
+  flex-shrink: 0;
+}
+.celina-tool-expand:hover {
+  color: #3c434b;
+}
+.celina-tool-details {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px dashed #eceef0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.celina-tool-detail {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #8a9099;
+  font-size: 11px;
+  overflow: hidden;
+}
+.celina-tool-detail span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.celina-tool-detail.error {
+  color: #c0392b;
+}
+.celina-tool-detail.ok {
+  color: #6b7280;
+}
 .celina-tool-summary {
   color: #8a9099;
   font-size: 11px;
@@ -209,16 +259,20 @@
   white-space: nowrap;
   flex: 1;
 }
+.celina-tool-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
 .celina-tool-ok {
   color: #10a37f;
-  margin-left: auto;
 }
 .celina-tool-err {
   color: #c0392b;
-  margin-left: auto;
 }
 .celina-undo-inline {
-  margin-left: auto;
   display: flex;
   align-items: center;
   gap: 3px;
@@ -388,17 +442,24 @@
   gap: 8px;
   padding: 10px 12px;
   border-top: 1px solid #eef0f2;
+  flex-shrink: 0;
 }
 .celina-composer textarea {
   flex: 1;
+  min-width: 0;
+  min-height: 36px;
+  max-height: 200px;
   border: 1px solid #d5dbe1;
   border-radius: 10px;
   padding: 9px 12px;
   font-family: inherit;
   font-size: 13px;
-  resize: none;
-  max-height: 140px;
   line-height: 1.4;
+  resize: none;
+  overflow-x: hidden;
+  overflow-y: auto;
+  box-sizing: border-box;
+  overflow-wrap: break-word;
 }
 .celina-composer textarea:focus {
   outline: none;

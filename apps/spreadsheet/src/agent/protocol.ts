@@ -21,6 +21,7 @@ export const CLIENT_READ_TOOLS = [
   'get_selection',
   'describe_workbook',
   'get_sheet_csv',
+  'activate_sheet',
 ] as const;
 
 /** Tools executed in the browser that mutate the workbook (gated by approval). */

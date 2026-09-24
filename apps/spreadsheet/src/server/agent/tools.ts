@@ -12,6 +12,7 @@ import {
   listSandbox,
 } from './sandbox';
 import { GUIDES, listGuides } from './prompts';
+import { parseJsonIfString } from '@/agent/coerce';
 
 type Emit = (event: AgentEvent) => void;
 
@@ -167,9 +168,21 @@ export function buildServerTools(
 // the model to call them correctly.
 // ---------------------------------------------------------------------------
 
-const cellsRecord = z
-  .record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.null()]))
-  .describe('Map of A1 cell address -> value/formula, e.g. {"A1":"Name","B2":"=A2*2"}');
+const cellValue = z.union([z.string(), z.number(), z.boolean(), z.null()]);
+
+const cellsRecord = z.preprocess(
+  parseJsonIfString,
+  z
+    .record(z.string(), cellValue)
+    .describe('Map of A1 cell address -> value/formula, e.g. {"A1":"Name","B2":"=A2*2"}'),
+);
+
+const valuesGrid = z.preprocess(
+  parseJsonIfString,
+  z
+    .array(z.array(cellValue))
+    .describe('2D array of values aligned to `range`. Pass a real array, not a string.'),
+);
 
 export function buildClientToolSchemas(): Record<string, CoreTool> {
   const t = (description: string, parameters: z.ZodTypeAny): CoreTool =>
@@ -199,6 +212,10 @@ export function buildClientToolSchemas(): Record<string, CoreTool> {
       'Export a whole sheet as CSV text (for feeding into python/pandas).',
       z.object({ sheet: z.string().optional() }),
     ),
+    activate_sheet: t(
+      'Switch the visible tab to this sheet. Call after add_sheet before formatting/merging that sheet.',
+      z.object({ name: z.string() }),
+    ),
 
     // ---- mutations ----
     set_values: t(
@@ -207,10 +224,7 @@ export function buildClientToolSchemas(): Record<string, CoreTool> {
         sheet: z.string().optional(),
         cells: cellsRecord.optional(),
         range: z.string().optional().describe('Top-left anchored range for a 2D block.'),
-        values: z
-          .array(z.array(z.union([z.string(), z.number(), z.boolean(), z.null()])))
-          .optional()
-          .describe('2D array of values aligned to `range`.'),
+        values: valuesGrid.optional(),
       }),
     ),
     clear_range: t('Clear the contents of a range.', z.object({ range: z.string() })),
@@ -271,7 +285,10 @@ export function buildClientToolSchemas(): Record<string, CoreTool> {
       'Delete columns. Structural op — run before content edits.',
       z.object({ index: z.number().int(), count: z.number().int().min(1) }),
     ),
-    add_sheet: t('Add a new sheet.', z.object({ name: z.string() })),
+    add_sheet: t(
+      'Add a new sheet and switch to it. Follow with writes using SheetName!A1 ranges.',
+      z.object({ name: z.string() }),
+    ),
     rename_sheet: t(
       'Rename a sheet by its current name.',
       z.object({ oldName: z.string(), newName: z.string() }),
@@ -280,7 +297,7 @@ export function buildClientToolSchemas(): Record<string, CoreTool> {
       'Insert a chart. Write the data first (separate batch), then chart it.',
       z.object({
         type: z.string().describe('Column, Bar, Line, Area, Pie, Doughnut, Scatter, StackedColumn, StackedBar'),
-        range: z.string().describe('Data range including headers/categories.'),
+        range: z.string().describe('Contiguous A1 range including headers, e.g. "A1:B13". Disjoint "A7:A19,H7:H19" is also accepted and packed.'),
         sheet: z.string().optional(),
       }),
     ),

@@ -116,6 +116,8 @@ export class SpreadsheetAdapter {
   // ---- mutations ---------------------------------------------------------
 
   setValuesMap(cells: Record<string, unknown>, sheet?: string): number {
+    const first = Object.keys(cells)[0];
+    if (first) this.ensureSheetForRange(first, sheet);
     let count = 0;
     for (const [addr, value] of Object.entries(cells)) {
       this.ss.updateCell({ value: value as any }, this.qualify(addr, sheet));
@@ -125,6 +127,7 @@ export class SpreadsheetAdapter {
   }
 
   setValuesBlock(range: string, values: unknown[][], sheet?: string): number {
+    this.ensureSheetForRange(range, sheet);
     const start = (range.includes('!') ? range.split('!')[1] : range).split(':')[0];
     const m = start.match(/^([A-Z]+)(\d+)$/);
     if (!m) throw new Error(`Bad range anchor: ${range}`);
@@ -142,10 +145,12 @@ export class SpreadsheetAdapter {
   }
 
   clearRange(range: string): void {
+    this.ensureSheetForRange(range);
     (this.ss as any).clear({ type: 'Clear All', range: this.qualify(range) });
   }
 
   setFormat(range: string, style: Record<string, string | number>): void {
+    this.ensureSheetForRange(range);
     const normalized = normalizeCellStyle(style);
     if (Object.keys(normalized).length === 0) {
       throw new Error(
@@ -156,19 +161,48 @@ export class SpreadsheetAdapter {
   }
 
   setNumberFormat(range: string, format: string): void {
+    this.ensureSheetForRange(range);
     this.ss.numberFormat(format, this.qualify(range));
   }
 
   merge(range: string): void {
+    this.ensureSheetForRange(range);
     (this.ss as any).merge(this.qualify(range));
   }
 
   unmerge(range: string): void {
+    this.ensureSheetForRange(range);
     (this.ss as any).merge(this.qualify(range), 'Unmerge');
   }
 
   autofit(range: string): void {
-    (this.ss as any).autoFit(this.qualify(range));
+    this.ensureSheetForRange(range);
+    // Syncfusion autoFit wants "A:H" or "1:12", not "Sheet!A1:H21".
+    // A qualified cell range looks up a missing DOM node → className of undefined.
+    const target = this.toAutoFitTarget(range);
+    try {
+      (this.ss as any).autoFit(target);
+    } catch {
+      const parsed = this.tryParseA1(range);
+      if (!parsed) throw new Error(`autofit failed for ${range}`);
+      this.setColWidth(parsed.startCol, parsed.endCol, 120);
+    }
+  }
+
+  /** Column span (`A:K`) or row span (`1:12`) for Syncfusion autoFit. */
+  private toAutoFitTarget(range: string): string {
+    const body = (range.includes('!') ? range.split('!')[1] : range).trim();
+    if (/^[A-Z]+:[A-Z]+$/i.test(body) || /^\d+:\d+$/.test(body)) return body;
+    const parsed = this.parseA1(body);
+    return `${this.numToCol(parsed.startCol)}:${this.numToCol(parsed.endCol)}`;
+  }
+
+  private tryParseA1(range: string): ReturnType<SpreadsheetAdapter['parseA1']> | null {
+    try {
+      return this.parseA1(range);
+    } catch {
+      return null;
+    }
   }
 
   setColWidth(startIndex: number, endIndex: number, width: number): void {
@@ -208,11 +242,37 @@ export class SpreadsheetAdapter {
   }
 
   addSheet(name: string): void {
-    (this.ss as any).insertSheet();
+    const trimmed = name.trim();
+    if (!trimmed) throw new Error('Sheet name is required.');
     const sheets = this.ss.sheets as any[];
-    const last = sheets[sheets.length - 1];
-    if (last) last.name = name;
-    (this.ss as any).dataBind?.();
+    if (sheets.some((s) => s.name === trimmed)) {
+      throw new Error(`Sheet already exists: ${trimmed}`);
+    }
+    // Allocate a real grid. insertSheet() with no model leaves `rows`/`activeCell`
+    // undefined, so later merge/format throw and saveAsJson snapshots are empty.
+    (this.ss as any).insertSheet([{ name: trimmed, rowCount: 100, colCount: 26 }]);
+    this.activateSheet(trimmed);
+  }
+
+  activateSheet(name: string): void {
+    const sheets = this.ss.sheets as any[];
+    const index = sheets.findIndex((s) => s.name === name);
+    if (index < 0) throw new Error(`Sheet not found: ${name}`);
+    this.ss.activeSheetIndex = index;
+    try {
+      (this.ss as any).goTo(`${name}!A1`);
+    } catch {
+      /* goTo is best-effort */
+    }
+    (this.ss as any).refresh?.();
+  }
+
+  /** Syncfusion merge/format/numberFormat read the *active* sheet's rows. */
+  private ensureSheetForRange(range: string, sheet?: string): void {
+    const name =
+      sheet ??
+      (range.includes('!') ? range.split('!')[0] : undefined);
+    if (name) this.activateSheet(name);
   }
 
   renameSheet(oldName: string, newName: string): void {
@@ -220,12 +280,101 @@ export class SpreadsheetAdapter {
     if (!sheet) throw new Error(`Sheet not found: ${oldName}`);
     sheet.name = newName;
     (this.ss as any).dataBind?.();
+    this.activateSheet(newName);
   }
 
-  insertChart(type: string, range: string, sheet?: string): void {
+  /**
+   * Syncfusion charts only bind a single contiguous A1 range. Agents often pass
+   * Excel-style disjoint ranges (`A7:A19,H7:H19` = categories + one series).
+   * Those used to become `Sheet!A7:A19,H7:H19`, which the grid parses as column
+   * A only — so a Line chart of month labels plots as a flat zero line.
+   */
+  async insertChart(
+    type: string,
+    range: string,
+    sheet?: string,
+  ): Promise<{ range: string; packed: boolean }> {
+    const resolved = await this.resolveChartRange(range, sheet);
     this.ss.insertChart([
-      { type: type as any, range: this.qualify(range, sheet), theme: 'Material' },
+      {
+        type: normalizeChartType(type) as any,
+        range: resolved.address,
+        theme: 'Material',
+      },
     ]);
+    return { range: resolved.address, packed: resolved.packed };
+  }
+
+  private async resolveChartRange(
+    range: string,
+    sheet?: string,
+  ): Promise<{ address: string; packed: boolean }> {
+    const parts = range
+      .split(',')
+      .map((p) => p.trim())
+      .filter(Boolean);
+    if (parts.length <= 1) {
+      return { address: this.qualify(parts[0] ?? range, sheet), packed: false };
+    }
+    return { address: await this.packChartSeries(parts, sheet), packed: true };
+  }
+
+  /** Copy each disjoint range into adjacent columns so insertChart can bind them. */
+  private async packChartSeries(parts: string[], sheet?: string): Promise<string> {
+    const columns: Array<Array<unknown>> = [];
+    let height = 0;
+    for (const part of parts) {
+      const data = await this.readRange(part.includes('!') ? part : this.qualify(part, sheet));
+      const parsed = this.parseA1(part.includes('!') ? part.split('!')[1] : part);
+      const col: unknown[] = [];
+      for (let r = parsed.startRow; r <= parsed.endRow; r++) {
+        const addr = `${this.numToCol(parsed.startCol)}${r + 1}`;
+        col.push(data[addr]?.value ?? data[addr]?.formula ?? '');
+      }
+      height = Math.max(height, col.length);
+      columns.push(col);
+    }
+    const destCol = this.nextPackColumn();
+    const destRow = 0;
+    const values = Array.from({ length: height }, (_, r) =>
+      columns.map((col) => col[r] ?? ''),
+    );
+    this.setValuesBlock(
+      `${this.numToCol(destCol)}${destRow + 1}`,
+      values,
+      sheet ?? this.activeSheetName(),
+    );
+    const endCol = destCol + columns.length - 1;
+    return this.qualify(
+      `${this.numToCol(destCol)}${destRow + 1}:${this.numToCol(endCol)}${destRow + height}`,
+      sheet,
+    );
+  }
+
+  private nextPackColumn(): number {
+    const sheets = this.ss.sheets as any[];
+    const sheet = sheets[this.ss.activeSheetIndex] ?? sheets[0];
+    const used = sheet?.usedRange?.colIndex ?? 0;
+    return used + 2;
+  }
+
+  private parseA1(range: string): {
+    startCol: number;
+    startRow: number;
+    endCol: number;
+    endRow: number;
+  } {
+    const body = range.includes('!') ? range.split('!')[1] : range;
+    const [start, end] = (body.includes(':') ? body : `${body}:${body}`).split(':');
+    const sm = start.match(/^([A-Z]+)(\d+)$/i);
+    const em = (end ?? start).match(/^([A-Z]+)(\d+)$/i);
+    if (!sm || !em) throw new Error(`Bad chart range: ${range}`);
+    return {
+      startCol: this.colToNum(sm[1].toUpperCase()),
+      startRow: parseInt(sm[2], 10) - 1,
+      endCol: this.colToNum(em[1].toUpperCase()),
+      endRow: parseInt(em[2], 10) - 1,
+    };
   }
 
   addConditionalFormat(
@@ -278,7 +427,9 @@ export class SpreadsheetAdapter {
   }
 
   restore(json: unknown): void {
+    if (json == null) throw new Error('No snapshot to restore.');
     (this.ss as any).openFromJson({ file: json });
+    (this.ss as any).refresh?.();
   }
 
   // ---- helpers -----------------------------------------------------------
@@ -328,6 +479,24 @@ function normalizeCellStyle(
     out[key] = String(raw);
   }
   return out;
+}
+
+function normalizeChartType(type: string): string {
+  const key = type.replace(/[_\s-]/g, '').toLowerCase();
+  const map: Record<string, string> = {
+    line: 'Line',
+    column: 'Column',
+    bar: 'Bar',
+    area: 'Area',
+    pie: 'Pie',
+    doughnut: 'Doughnut',
+    scatter: 'Scatter',
+    stackedcolumn: 'StackingColumn',
+    stackedbar: 'StackingBar',
+    stackingcolumn: 'StackingColumn',
+    stackingbar: 'StackingBar',
+  };
+  return map[key] ?? type;
 }
 
 function normalizeFontSize(value: unknown): string {

@@ -18,7 +18,7 @@ export const BASE_PROMPT = `You are Celina, a state-of-the-art spreadsheet agent
 - ALWAYS write live formulas, never pre-computed values, when a value is derived from other cells (e.g. \`=A2/B2\`, \`=SUMIFS(...)\`). This keeps the workbook interactive.
 - Place new headers sensibly and keep columns aligned with existing data.
 - Batching rule: structural operations (insert/delete rows or columns, add/rename sheet) shift cell addresses. Do them FIRST and on their own, then re-read the layout, then apply content/format operations.
-- Reference exact A1 ranges (e.g. \`Sheet1!B2:B20\` or \`B2:B20\` for the active sheet).
+- Reference exact A1 ranges (e.g. \`Sheet1!B2:B20\` or \`B2:B20\` for the active sheet). After \`add_sheet\`, the new tab is activated; still qualify later writes as \`NewSheet!A1\`.
 - Prefer a small number of wide operations (a whole range) over many single-cell writes.
 
 # Research
@@ -40,7 +40,7 @@ export const GUIDES: Record<string, string> = {
   charts: `# Charts guide
 - Tool: \`insert_chart\` with { type, range, sheet? }.
 - type is one of: Column, Bar, Line, Area, Pie, Doughnut, Scatter, StackedColumn, StackedBar.
-- range must include the category labels and the value columns, e.g. "A1:B13" (first column categories, header row included).
+- range must be a contiguous block (e.g. "A1:B13": first column categories, header row included). Disjoint ranges like "A7:A19,H7:H19" are packed into a hidden-adjacent 2-col block automatically — prefer writing categories next to values when you can.
 - Write the data to the sheet FIRST in one batch, let it apply, then insert the chart in a second step — the chart reads current cell values.
 - Pick the type from the data shape: trends over time -> Line; parts of a whole (<=6 categories) -> Pie/Doughnut; comparisons across categories -> Column/Bar; correlation -> Scatter.`,
 
