@@ -5,12 +5,8 @@ import path from 'node:path';
 import os from 'node:os';
 
 /**
- * A pragmatic per-session sandbox: a jailed scratch directory plus resource caps
- * on `bash`/`python`. This confines the *filesystem working dir* and bounds time
- * and output, which covers the spreadsheet use cases (pandas transforms on
- * exported CSVs). It is NOT a security boundary against a hostile model — real
- * isolation needs a container/microVM; see the plan's risks section. Deployments
- * that expose this publicly should run the whole app inside such a container.
+ * Scratch-dir jail with time/output caps. Not a security boundary against a
+ * hostile model — public deploys should run the app in a container.
  */
 
 const OUTPUT_CAP = 100_000; // chars per stream
@@ -33,7 +29,6 @@ export async function getScratchDir(sessionId: string): Promise<string> {
   return dir;
 }
 
-/** Resolve a user-supplied path, refusing anything that escapes the scratch dir. */
 export async function confinePath(
   sessionId: string,
   relOrAbs: string,
@@ -72,8 +67,7 @@ function runCommand(
 
     const child = spawn(command, args, {
       cwd,
-      // Minimal env so the sandbox does not inherit server secrets (API keys).
-      // Cast through unknown because Next augments ProcessEnv with required keys.
+      // Do not inherit API keys. Cast: Next marks ProcessEnv keys as required.
       env: {
         PATH: process.env.PATH ?? '',
         HOME: cwd,
@@ -129,7 +123,7 @@ export async function runPython(
 ): Promise<ExecResult> {
   const cwd = await getScratchDir(sessionId);
   const bin = process.env.AGENT_PYTHON_BIN ?? 'python3';
-  // Pass code via a temp file to avoid shell-escaping issues.
+  // Avoid shell-escaping the snippet.
   const file = path.join(cwd, `.snippet_${Date.now()}.py`);
   await fs.writeFile(file, code, 'utf8');
   try {

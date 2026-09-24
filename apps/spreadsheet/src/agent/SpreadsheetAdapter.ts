@@ -1,15 +1,16 @@
 import type { SpreadsheetComponent } from '@syncfusion/ej2-react-spreadsheet';
 
-/**
- * Typed, batched wrapper over the Syncfusion EJ2 Spreadsheet imperative API.
- * This is the single seam between the agent's document tools and Syncfusion, so
- * planning, snapshots and audit stay replaceable if the editor ever changes
- * (mirrors GenOffice's WorkbookAdapter idea).
- *
- * Syncfusion's typings are loose in places, so a few calls are intentionally
- * cast to `any`; each such call is wrapped by the client-tool executor which
- * converts thrown errors into structured tool errors for the model.
- */
+/** Single seam to Syncfusion so document tools stay replaceable if the editor changes. */
+export interface WriteValuesResult {
+  count: number;
+  repaired: string[];
+  skipped: string[];
+}
+
+function emptyWriteResult(): WriteValuesResult {
+  return { count: 0, repaired: [], skipped: [] };
+}
+
 export class SpreadsheetAdapter {
   constructor(private readonly getInstance: () => SpreadsheetComponent | null) {}
 
@@ -24,20 +25,16 @@ export class SpreadsheetAdapter {
     return sheet?.name ?? 'Sheet1';
   }
 
-  /** Qualify an A1 range with a sheet name (defaults to the active sheet). */
   private qualify(range: string, sheet?: string): string {
     if (range.includes('!')) return range;
     return `${sheet ?? this.activeSheetName()}!${range}`;
   }
-
-  // ---- reads -------------------------------------------------------------
 
   async readRange(range: string): Promise<Record<string, { value: unknown; formula?: string }>> {
     const address = range.includes('!') ? range : this.qualify(range);
     const data = (await (this.ss as any).getData(address)) as Map<string, any>;
     const out: Record<string, { value: unknown; formula?: string }> = {};
     data.forEach((cell, key) => {
-      // getData keys are like "Sheet!A1"; strip the sheet prefix for brevity.
       const addr = key.includes('!') ? key.split('!')[1] : key;
       out[addr] = { value: cell?.value ?? null, formula: cell?.formula };
     });
@@ -113,35 +110,48 @@ export class SpreadsheetAdapter {
       .join('\n');
   }
 
-  // ---- mutations ---------------------------------------------------------
-
-  setValuesMap(cells: Record<string, unknown>, sheet?: string): number {
+  setValuesMap(cells: Record<string, unknown>, sheet?: string): WriteValuesResult {
     const first = Object.keys(cells)[0];
     if (first) this.ensureSheetForRange(first, sheet);
-    let count = 0;
+    const result = emptyWriteResult();
     for (const [addr, value] of Object.entries(cells)) {
-      this.ss.updateCell({ value: value as any }, this.qualify(addr, sheet));
-      count++;
+      this.writeCell(addr, value, sheet, result);
     }
-    return count;
+    return result;
   }
 
-  setValuesBlock(range: string, values: unknown[][], sheet?: string): number {
+  setValuesBlock(range: string, values: unknown[][], sheet?: string): WriteValuesResult {
     this.ensureSheetForRange(range, sheet);
     const start = (range.includes('!') ? range.split('!')[1] : range).split(':')[0];
-    const m = start.match(/^([A-Z]+)(\d+)$/);
+    const m = start.match(/^([A-Z]+)(\d+)$/i);
     if (!m) throw new Error(`Bad range anchor: ${range}`);
-    const startCol = this.colToNum(m[1]);
+    const startCol = this.colToNum(m[1].toUpperCase());
     const startRow = parseInt(m[2], 10) - 1;
-    let count = 0;
+    const result = emptyWriteResult();
     values.forEach((row, r) => {
-      row.forEach((value, c) => {
+      const cells = Array.isArray(row) ? row : [row];
+      cells.forEach((value, c) => {
         const addr = `${this.numToCol(startCol + c)}${startRow + r + 1}`;
-        this.ss.updateCell({ value: value as any }, this.qualify(addr, sheet));
-        count++;
+        this.writeCell(addr, value, sheet, result);
       });
     });
-    return count;
+    return result;
+  }
+
+  private writeCell(
+    addr: string,
+    value: unknown,
+    sheet: string | undefined,
+    result: WriteValuesResult,
+  ): void {
+    const prepared = this.prepareFormula(addr, value);
+    if (prepared.skip) {
+      result.skipped.push(prepared.skip);
+      return;
+    }
+    this.ss.updateCell({ value: prepared.value as any }, this.qualify(addr, sheet));
+    result.count += 1;
+    if (prepared.repaired) result.repaired.push(prepared.repaired);
   }
 
   clearRange(range: string): void {
@@ -151,6 +161,7 @@ export class SpreadsheetAdapter {
 
   setFormat(range: string, style: Record<string, string | number>): void {
     this.ensureSheetForRange(range);
+    this.ensureGrid(range);
     const normalized = normalizeCellStyle(style);
     if (Object.keys(normalized).length === 0) {
       throw new Error(
@@ -167,54 +178,63 @@ export class SpreadsheetAdapter {
 
   merge(range: string): void {
     this.ensureSheetForRange(range);
-    (this.ss as any).merge(this.qualify(range));
+    const parsed = this.ensureGrid(range);
+    try {
+      (this.ss as any).merge(this.qualify(range));
+    } catch {
+      this.applyMergeModel(parsed, true);
+      this.refreshQuiet();
+    }
   }
 
   unmerge(range: string): void {
     this.ensureSheetForRange(range);
-    (this.ss as any).merge(this.qualify(range), 'Unmerge');
+    const parsed = this.ensureGrid(range);
+    try {
+      (this.ss as any).merge(this.qualify(range), 'Unmerge');
+    } catch {
+      this.applyMergeModel(parsed, false);
+      this.refreshQuiet();
+    }
   }
 
   autofit(range: string): void {
     this.ensureSheetForRange(range);
-    // Syncfusion autoFit wants "A:H" or "1:12", not "Sheet!A1:H21".
-    // A qualified cell range looks up a missing DOM node → className of undefined.
-    const target = this.toAutoFitTarget(range);
+    // Syncfusion autoFit reads viewport DOM nodes that are often missing after agent writes.
+    let span: { kind: 'cols' | 'rows'; start: number; end: number };
     try {
-      (this.ss as any).autoFit(target);
+      span = this.parseAutoFitSpan(range);
     } catch {
-      const parsed = this.tryParseA1(range);
-      if (!parsed) throw new Error(`autofit failed for ${range}`);
-      this.setColWidth(parsed.startCol, parsed.endCol, 120);
+      throw new Error(`autofit: bad range "${range}". Use A:K, 1:12, or A1:K20.`);
     }
-  }
-
-  /** Column span (`A:K`) or row span (`1:12`) for Syncfusion autoFit. */
-  private toAutoFitTarget(range: string): string {
-    const body = (range.includes('!') ? range.split('!')[1] : range).trim();
-    if (/^[A-Z]+:[A-Z]+$/i.test(body) || /^\d+:\d+$/.test(body)) return body;
-    const parsed = this.parseA1(body);
-    return `${this.numToCol(parsed.startCol)}:${this.numToCol(parsed.endCol)}`;
-  }
-
-  private tryParseA1(range: string): ReturnType<SpreadsheetAdapter['parseA1']> | null {
-    try {
-      return this.parseA1(range);
-    } catch {
-      return null;
+    if (span.kind === 'rows') {
+      this.setRowHeight(span.start, span.end, 22);
+      return;
     }
+    const sheet = this.ss.getActiveSheet() as any;
+    const widths = this.measureColumnWidths(sheet, span.start, span.end);
+    this.applyColumnWidths(span.start, widths);
   }
 
   setColWidth(startIndex: number, endIndex: number, width: number): void {
-    for (let i = startIndex; i <= endIndex; i++) {
-      this.ss.setColWidth(width, i, this.ss.activeSheetIndex);
-    }
+    const w = Math.max(0, width);
+    const count = Math.max(0, endIndex - startIndex + 1);
+    this.applyColumnWidths(startIndex, Array.from({ length: count }, () => w));
   }
 
   setRowHeight(startIndex: number, endIndex: number, height: number): void {
+    const sheet = this.ss.getActiveSheet() as any;
+    if (!Array.isArray(sheet.rows)) sheet.rows = [];
     for (let i = startIndex; i <= endIndex; i++) {
-      this.ss.setRowHeight(height, i, this.ss.activeSheetIndex);
+      if (!sheet.rows[i]) sheet.rows[i] = {};
+      sheet.rows[i].height = height;
+      try {
+        this.ss.setRowHeight(height, i, this.ss.activeSheetIndex);
+      } catch {
+        /* model already has the height */
+      }
     }
+    this.refreshQuiet();
   }
 
   freezePanes(rows: number, cols: number): void {
@@ -248,8 +268,7 @@ export class SpreadsheetAdapter {
     if (sheets.some((s) => s.name === trimmed)) {
       throw new Error(`Sheet already exists: ${trimmed}`);
     }
-    // Allocate a real grid. insertSheet() with no model leaves `rows`/`activeCell`
-    // undefined, so later merge/format throw and saveAsJson snapshots are empty.
+    // insertSheet() with no model leaves rows undefined; merge/format then throw.
     (this.ss as any).insertSheet([{ name: trimmed, rowCount: 100, colCount: 26 }]);
     this.activateSheet(trimmed);
   }
@@ -264,15 +283,58 @@ export class SpreadsheetAdapter {
     } catch {
       /* goTo is best-effort */
     }
-    (this.ss as any).refresh?.();
+    // refresh() after a tab switch races SheetTabs' focus RAF (parent is already null).
   }
 
-  /** Syncfusion merge/format/numberFormat read the *active* sheet's rows. */
+  /** Syncfusion merge/format read the active sheet's rows only. */
   private ensureSheetForRange(range: string, sheet?: string): void {
     const name =
       sheet ??
       (range.includes('!') ? range.split('!')[0] : undefined);
     if (name) this.activateSheet(name);
+  }
+
+  /** Sparse cells are undefined; merge/format then read `.style` and throw. */
+  private ensureGrid(range: string): {
+    startCol: number;
+    startRow: number;
+    endCol: number;
+    endRow: number;
+  } {
+    const parsed = this.parseA1(range);
+    const sheet = this.ss.getActiveSheet() as any;
+    if (!Array.isArray(sheet.rows)) sheet.rows = [];
+    for (let r = parsed.startRow; r <= parsed.endRow; r++) {
+      if (!sheet.rows[r]) sheet.rows[r] = { cells: [] };
+      if (!Array.isArray(sheet.rows[r].cells)) sheet.rows[r].cells = [];
+      for (let c = parsed.startCol; c <= parsed.endCol; c++) {
+        if (!sheet.rows[r].cells[c]) sheet.rows[r].cells[c] = {};
+      }
+    }
+    return parsed;
+  }
+
+  private applyMergeModel(
+    parsed: { startCol: number; startRow: number; endCol: number; endRow: number },
+    merge: boolean,
+  ): void {
+    const sheet = this.ss.getActiveSheet() as any;
+    const rowSpan = parsed.endRow - parsed.startRow + 1;
+    const colSpan = parsed.endCol - parsed.startCol + 1;
+    if (merge) {
+      const cell = sheet.rows[parsed.startRow].cells[parsed.startCol];
+      if (colSpan > 1) cell.colSpan = colSpan;
+      if (rowSpan > 1) cell.rowSpan = rowSpan;
+      return;
+    }
+    for (let r = parsed.startRow; r <= parsed.endRow; r++) {
+      for (let c = parsed.startCol; c <= parsed.endCol; c++) {
+        const cell = sheet.rows[r]?.cells?.[c];
+        if (!cell) continue;
+        delete cell.rowSpan;
+        delete cell.colSpan;
+      }
+    }
   }
 
   renameSheet(oldName: string, newName: string): void {
@@ -283,12 +345,7 @@ export class SpreadsheetAdapter {
     this.activateSheet(newName);
   }
 
-  /**
-   * Syncfusion charts only bind a single contiguous A1 range. Agents often pass
-   * Excel-style disjoint ranges (`A7:A19,H7:H19` = categories + one series).
-   * Those used to become `Sheet!A7:A19,H7:H19`, which the grid parses as column
-   * A only — so a Line chart of month labels plots as a flat zero line.
-   */
+  /** Syncfusion charts bind one contiguous range; a disjoint Excel range plots only the first column. */
   async insertChart(
     type: string,
     range: string,
@@ -319,7 +376,6 @@ export class SpreadsheetAdapter {
     return { address: await this.packChartSeries(parts, sheet), packed: true };
   }
 
-  /** Copy each disjoint range into adjacent columns so insertChart can bind them. */
   private async packChartSeries(parts: string[], sheet?: string): Promise<string> {
     const columns: Array<Array<unknown>> = [];
     let height = 0;
@@ -356,6 +412,131 @@ export class SpreadsheetAdapter {
     const sheet = sheets[this.ss.activeSheetIndex] ?? sheets[0];
     const used = sheet?.usedRange?.colIndex ?? 0;
     return used + 2;
+  }
+
+  /** Models often write the destination into its own formula (`=SUM(G16:G17)` in G17). */
+  private prepareFormula(
+    addr: string,
+    value: unknown,
+  ): { value: unknown; repaired?: string; skip?: string } {
+    const text = value == null ? '' : String(value).trim();
+    if (!text.startsWith('=')) return { value };
+    const body = addr.includes('!') ? addr.split('!')[1] : addr;
+    const dest = this.tryParseA1(body);
+    if (!dest) return { value };
+    if (!this.formulaRefersTo(text, dest.startCol, dest.startRow)) return { value };
+    const rewritten = this.rewriteSelfRefs(text, dest.startCol, dest.startRow);
+    if (!rewritten || this.formulaRefersTo(rewritten, dest.startCol, dest.startRow)) {
+      return { value, skip: `${body} ${text}` };
+    }
+    return { value: rewritten, repaired: `${body} ${text} → ${rewritten}` };
+  }
+
+  private rewriteSelfRefs(formula: string, col: number, row: number): string | null {
+    const above = row > 0 ? `${this.numToCol(col)}${row}` : null;
+    let next = formula.replace(
+      /\$?([A-Z]+)\$?(\d+):\$?([A-Z]+)\$?(\d+)/gi,
+      (full, c1: string, r1: string, c2: string, r2: string) => {
+        const clipped = this.clipRangeToExclude(
+          this.colToNum(c1.toUpperCase()),
+          parseInt(r1, 10) - 1,
+          this.colToNum(c2.toUpperCase()),
+          parseInt(r2, 10) - 1,
+          col,
+          row,
+        );
+        return clipped ?? full;
+      },
+    );
+    next = next.replace(/\$?([A-Z]+):\$?([A-Z]+)(?!\d)/gi, (full, c1: string, c2: string) => {
+      const left = this.colToNum(c1.toUpperCase());
+      const right = this.colToNum(c2.toUpperCase());
+      if (col < Math.min(left, right) || col > Math.max(left, right) || row === 0) return full;
+      const letter = this.numToCol(col);
+      return `${letter}1:${letter}${row}`;
+    });
+    if (above) {
+      const self = new RegExp(`\\$?${this.numToCol(col)}\\$?${row + 1}(?!\\d)`, 'gi');
+      next = next.replace(self, above);
+      next = next.replace(/([A-Z]+\d+)\s*([+-])\s*\1/gi, '$1');
+    }
+    return next === formula ? null : next;
+  }
+
+  private clipRangeToExclude(
+    c1: number,
+    r1: number,
+    c2: number,
+    r2: number,
+    col: number,
+    row: number,
+  ): string | null {
+    let cStart = Math.min(c1, c2);
+    let cEnd = Math.max(c1, c2);
+    let rStart = Math.min(r1, r2);
+    let rEnd = Math.max(r1, r2);
+    if (col < cStart || col > cEnd || row < rStart || row > rEnd) return null;
+    if (cStart === cEnd) {
+      if (row === rEnd) rEnd = row - 1;
+      else if (row === rStart) rStart = row + 1;
+      else rEnd = row - 1;
+    } else if (rStart === rEnd) {
+      if (col === cEnd) cEnd = col - 1;
+      else if (col === cStart) cStart = col + 1;
+      else cEnd = col - 1;
+    } else if (row === rEnd) {
+      rEnd = row - 1;
+    } else {
+      return null;
+    }
+    if (cEnd < cStart || rEnd < rStart) return null;
+    const a = `${this.numToCol(cStart)}${rStart + 1}`;
+    const b = `${this.numToCol(cEnd)}${rEnd + 1}`;
+    return a === b ? a : `${a}:${b}`;
+  }
+
+  private tryParseA1(range: string): ReturnType<SpreadsheetAdapter['parseA1']> | null {
+    try {
+      return this.parseA1(range);
+    } catch {
+      return null;
+    }
+  }
+
+  private formulaRefersTo(formula: string, col: number, row: number): boolean {
+    const body = formula.replace(/^=/, '');
+    const rangeRe = /\$?([A-Z]+)\$?(\d+):\$?([A-Z]+)\$?(\d+)/gi;
+    let m: RegExpExecArray | null;
+    while ((m = rangeRe.exec(body))) {
+      const c1 = this.colToNum(m[1].toUpperCase());
+      const r1 = parseInt(m[2], 10) - 1;
+      const c2 = this.colToNum(m[3].toUpperCase());
+      const r2 = parseInt(m[4], 10) - 1;
+      if (
+        col >= Math.min(c1, c2) &&
+        col <= Math.max(c1, c2) &&
+        row >= Math.min(r1, r2) &&
+        row <= Math.max(r1, r2)
+      ) {
+        return true;
+      }
+    }
+    const colRe = /\$?([A-Z]+):\$?([A-Z]+)(?!\d)/gi;
+    while ((m = colRe.exec(body))) {
+      const c1 = this.colToNum(m[1].toUpperCase());
+      const c2 = this.colToNum(m[2].toUpperCase());
+      if (col >= Math.min(c1, c2) && col <= Math.max(c1, c2)) return true;
+    }
+    const stripped = body
+      .replace(/\$?[A-Z]+\$?\d+:\$?[A-Z]+\$?\d+/gi, '')
+      .replace(/\$?[A-Z]+:\$?[A-Z]+(?!\d)/gi, '');
+    const cellRe = /\$?([A-Z]+)\$?(\d+)/gi;
+    while ((m = cellRe.exec(stripped))) {
+      if (this.colToNum(m[1].toUpperCase()) === col && parseInt(m[2], 10) - 1 === row) {
+        return true;
+      }
+    }
+    return false;
   }
 
   private parseA1(range: string): {
@@ -419,8 +600,6 @@ export class SpreadsheetAdapter {
     }
   }
 
-  // ---- snapshots (undo/rollback) ----------------------------------------
-
   async snapshot(): Promise<unknown> {
     const res = (await (this.ss as any).saveAsJson()) as { jsonObject: unknown };
     return res.jsonObject;
@@ -432,7 +611,100 @@ export class SpreadsheetAdapter {
     (this.ss as any).refresh?.();
   }
 
-  // ---- helpers -----------------------------------------------------------
+  private textCtx: CanvasRenderingContext2D | null = null;
+
+  private parseAutoFitSpan(range: string): { kind: 'cols' | 'rows'; start: number; end: number } {
+    const body = (range.includes('!') ? range.split('!')[1] : range).trim();
+    const cols = body.match(/^([A-Z]+):([A-Z]+)$/i);
+    if (cols) {
+      const start = this.colToNum(cols[1].toUpperCase());
+      const end = this.colToNum(cols[2].toUpperCase());
+      return { kind: 'cols', start: Math.min(start, end), end: Math.max(start, end) };
+    }
+    const rows = body.match(/^(\d+):(\d+)$/);
+    if (rows) {
+      const start = parseInt(rows[1], 10) - 1;
+      const end = parseInt(rows[2], 10) - 1;
+      return { kind: 'rows', start: Math.min(start, end), end: Math.max(start, end) };
+    }
+    const parsed = this.parseA1(body);
+    return { kind: 'cols', start: parsed.startCol, end: parsed.endCol };
+  }
+
+  private measureColumnWidths(sheet: any, startCol: number, endCol: number): number[] {
+    const rows: any[] = Array.isArray(sheet?.rows) ? sheet.rows : [];
+    const widths: number[] = [];
+    for (let c = startCol; c <= endCol; c++) {
+      let max = 64;
+      for (let r = 0; r < rows.length; r++) {
+        const cell = rows[r]?.cells?.[c];
+        if (!cell) continue;
+        if (typeof cell.colSpan === 'number' && cell.colSpan > 1) continue;
+        const text = this.cellDisplayText(cell);
+        if (!text) continue;
+        const w = Math.ceil(this.measureTextWidth(text, cell.style) + 18);
+        max = Math.max(max, Math.min(w, 420));
+      }
+      widths.push(max);
+    }
+    return widths;
+  }
+
+  private cellDisplayText(cell: any): string {
+    if (cell.value != null && cell.value !== '') return String(cell.value);
+    if (cell.formula) return String(cell.formula);
+    return '';
+  }
+
+  private measureTextWidth(text: string, style?: { fontSize?: string; fontFamily?: string; fontWeight?: string }): number {
+    const ctx = this.ensureTextCtx();
+    if (!ctx) return text.length * 8;
+    const pt = parseFontPt(style?.fontSize);
+    const px = pt * (96 / 72);
+    const weight =
+      style?.fontWeight === 'bold' || style?.fontWeight === '700' ? '700' : '400';
+    const family = style?.fontFamily || 'Calibri, Arial, sans-serif';
+    ctx.font = `${weight} ${px}px ${family}`;
+    return ctx.measureText(text).width;
+  }
+
+  private ensureTextCtx(): CanvasRenderingContext2D | null {
+    if (this.textCtx) return this.textCtx;
+    if (typeof document === 'undefined') return null;
+    const canvas = document.createElement('canvas');
+    this.textCtx = canvas.getContext('2d');
+    return this.textCtx;
+  }
+
+  private applyColumnWidths(startCol: number, widths: number[]): void {
+    const sheet = this.ss.getActiveSheet() as any;
+    if (!Array.isArray(sheet.columns)) sheet.columns = [];
+    widths.forEach((width, i) => {
+      const idx = startCol + i;
+      if (!sheet.columns[idx]) sheet.columns[idx] = {};
+      sheet.columns[idx].width = width;
+      sheet.columns[idx].customWidth = true;
+      try {
+        this.ss.setColWidth(width, idx, this.ss.activeSheetIndex);
+      } catch {
+        /* model already has the width */
+      }
+    });
+    this.refreshQuiet();
+  }
+
+  private refreshQuiet(): void {
+    try {
+      (this.ss as any).dataBind?.();
+    } catch {
+      /* ignore */
+    }
+    try {
+      (this.ss as any).refresh?.();
+    } catch {
+      /* ignore */
+    }
+  }
 
   private colToNum(col: string): number {
     let n = 0;
@@ -454,11 +726,7 @@ export class SpreadsheetAdapter {
   }
 }
 
-/**
- * Syncfusion cellFormat calls `.split` / `.indexOf` / `.includes` on style
- * strings. The model often sends fontSize: 14 (number), which throws and can
- * also leave a bad style on the cell so a later merge() crashes the same way.
- */
+/** Syncfusion cellFormat calls `.split` on style strings; a numeric fontSize poisons later merge(). */
 function normalizeCellStyle(
   style: Record<string, unknown> | null | undefined,
 ): Record<string, string> {
@@ -504,6 +772,13 @@ function normalizeFontSize(value: unknown): string {
   const s = String(value).trim();
   if (/^\d+(\.\d+)?$/.test(s)) return `${s}pt`;
   return s;
+}
+
+function parseFontPt(fontSize?: string): number {
+  if (!fontSize) return 11;
+  const n = parseFloat(fontSize);
+  if (!Number.isFinite(n)) return 11;
+  return String(fontSize).toLowerCase().includes('px') ? n * 0.75 : n;
 }
 
 function csvEscape(v: string): string {

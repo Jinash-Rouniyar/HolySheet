@@ -1,20 +1,8 @@
 /**
- * Shared agent protocol types — framework-free so both the browser client and
- * the Next route handlers can import it. No React, no Node, no AI-SDK imports.
- *
- * Transport model (see the plan's "two-brain" design):
- *  - The agent loop runs server-side and streams `AgentEvent`s over SSE.
- *  - Document tools (spreadsheet ops, screenshot, plan, ask_user) live in the
- *    browser where Syncfusion is. The server emits `request_client_tool`; the
- *    browser executes it against the SpreadsheetAdapter and POSTs a
- *    `ClientToolResult` back to /api/agent/tool-result, which unblocks the loop.
+ * Shared types for the two-brain loop: server streams AgentEvents over SSE;
+ * the browser runs document tools and POSTs results back.
  */
 
-// ---------------------------------------------------------------------------
-// Tool names
-// ---------------------------------------------------------------------------
-
-/** Tools executed in the browser against Syncfusion (read-only document tools). */
 export const CLIENT_READ_TOOLS = [
   'read_range',
   'get_sheets',
@@ -24,7 +12,7 @@ export const CLIENT_READ_TOOLS = [
   'activate_sheet',
 ] as const;
 
-/** Tools executed in the browser that mutate the workbook (gated by approval). */
+/** Gated by the client approval flow. */
 export const CLIENT_MUTATE_TOOLS = [
   'set_values',
   'clear_range',
@@ -50,7 +38,6 @@ export const CLIENT_MUTATE_TOOLS = [
   'add_named_range',
 ] as const;
 
-/** Vision + interaction tools also handled client-side via the round-trip. */
 export const CLIENT_SPECIAL_TOOLS = [
   'capture_screenshot',
   'present_plan',
@@ -63,9 +50,15 @@ export const CLIENT_TOOLS = [
   ...CLIENT_SPECIAL_TOOLS,
 ] as const;
 
-/** Tools executed on the server (sandbox / network). */
 export const SERVER_TOOLS = [
   'web_search',
+  'sec_lookup',
+  'sec_filings',
+  'sec_financials',
+  'sec_concept',
+  'sec_comps',
+  'sec_filing_text',
+  'sec_insiders',
   'bash',
   'python',
   'read_file',
@@ -88,10 +81,6 @@ export function isClientTool(name: string): name is ClientToolName {
 export function isMutatingTool(name: string): boolean {
   return MUTATE_SET.has(name);
 }
-
-// ---------------------------------------------------------------------------
-// Server -> client events (SSE)
-// ---------------------------------------------------------------------------
 
 export type ToolSide = 'server' | 'client';
 
@@ -121,31 +110,22 @@ export type AgentEvent =
   | { type: 'run_finished'; runId: string; reason: string; text: string }
   | { type: 'error'; message: string };
 
-// ---------------------------------------------------------------------------
-// Client -> server payloads
-// ---------------------------------------------------------------------------
-
 export interface StartRunRequest {
   sessionId: string;
   message: string;
-  /** Optional lightweight workbook context captured at send time. */
   context?: string;
-  /** When true, mutating tools skip the per-edit approval gate client-side. */
   autoApprove?: boolean;
 }
 
 export interface ClientToolResult {
   sessionId: string;
   toolCallId: string;
-  /** Arbitrary JSON-serializable result, or an error. */
   ok: boolean;
   result?: unknown;
   error?: string;
-  /** Optional image (base64 data URL) for capture_screenshot. */
   image?: string;
 }
 
-/** SSE framing helpers (shared so client parser and server encoder agree). */
 export const SSE_EVENT_PREFIX = 'data: ';
 
 export function encodeSSE(event: AgentEvent): string {

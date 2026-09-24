@@ -3,41 +3,48 @@ import { anthropic } from '@ai-sdk/anthropic';
 import { openai } from '@ai-sdk/openai';
 import type { LanguageModel } from 'ai';
 
-/**
- * Provider registry. Claude is primary (best tool-use + extended thinking);
- * OpenAI is the fallback. Model ids are env-overridable so the deployment can
- * track the latest frontier model without a code change.
- */
-export function getModel(): LanguageModel {
-  const provider =
-    process.env.AGENT_PROVIDER ??
-    (process.env.ANTHROPIC_API_KEY ? 'anthropic' : 'openai');
+/** Terra by default: Luna drops too many sheet tools. Sol via AGENT_MODEL=gpt-5.6-sol. */
+function resolveProvider(): 'openai' | 'anthropic' {
+  const explicit = process.env.AGENT_PROVIDER?.toLowerCase();
+  if (explicit === 'openai' || explicit === 'anthropic') return explicit;
+  if (process.env.OPENAI_API_KEY) return 'openai';
+  if (process.env.ANTHROPIC_API_KEY) return 'anthropic';
+  return 'openai';
+}
 
+export function getModel(): LanguageModel {
+  const provider = resolveProvider();
   if (provider === 'openai') {
-    return openai(process.env.AGENT_MODEL ?? 'gpt-4o');
+    const id = process.env.AGENT_MODEL ?? 'gpt-5.6-terra';
+    // Chat Completions cannot combine function tools with reasoning traces.
+    return openai.responses(id);
   }
   return anthropic(process.env.AGENT_MODEL ?? 'claude-sonnet-4-5');
 }
 
 export function isAnthropic(): boolean {
-  const provider =
-    process.env.AGENT_PROVIDER ??
-    (process.env.ANTHROPIC_API_KEY ? 'anthropic' : 'openai');
-  return provider === 'anthropic';
+  return resolveProvider() === 'anthropic';
 }
 
-/**
- * Extended-thinking provider options. Only Anthropic supports this; passing it
- * to other providers is ignored by the AI SDK. Streamed thinking deltas surface
- * as `thinking_delta` events for the collapsible Thinking block.
- */
+/** Maps to the same thinking_delta UI on both providers. */
 export function thinkingOptions(): Record<string, unknown> | undefined {
-  if (!isAnthropic()) return undefined;
-  const budget = Number(process.env.AGENT_THINKING_BUDGET ?? 6000);
-  if (!Number.isFinite(budget) || budget <= 0) return undefined;
+  if (isAnthropic()) {
+    const budget = Number(process.env.AGENT_THINKING_BUDGET ?? 6000);
+    if (!Number.isFinite(budget) || budget <= 0) return undefined;
+    return {
+      anthropic: {
+        thinking: { type: 'enabled', budgetTokens: budget },
+      },
+    };
+  }
+
+  const effort = (process.env.AGENT_REASONING_EFFORT ?? 'medium').toLowerCase();
+  if (effort === 'none' || effort === '0' || effort === 'off') return undefined;
   return {
-    anthropic: {
-      thinking: { type: 'enabled', budgetTokens: budget },
+    openai: {
+      reasoningEffort: effort,
+      // `auto` often yields an empty summary on Terra/Sol.
+      reasoningSummary: process.env.AGENT_REASONING_SUMMARY ?? 'detailed',
     },
   };
 }

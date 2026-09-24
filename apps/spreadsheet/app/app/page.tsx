@@ -2,8 +2,7 @@
 
 import dynamic from 'next/dynamic';
 
-// Syncfusion touches `window`/`document` at import time and must never render on
-// the server, so the whole workspace is loaded client-only.
+// Syncfusion touches window at import time.
 const SpreadsheetWorkspace = dynamic(
   () => import('@/components/SpreadsheetWorkspace'),
   {

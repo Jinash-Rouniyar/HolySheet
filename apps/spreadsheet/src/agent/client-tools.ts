@@ -1,5 +1,5 @@
-import type { SpreadsheetAdapter } from './SpreadsheetAdapter';
-import { parseJsonIfString } from './coerce';
+import type { SpreadsheetAdapter, WriteValuesResult } from './SpreadsheetAdapter';
+import { coerceCells, coerceValuesGrid, describeArg, parseJsonIfString } from './coerce';
 
 export interface AdapterToolResult {
   ok: boolean;
@@ -7,12 +7,7 @@ export interface AdapterToolResult {
   error?: string;
 }
 
-/**
- * Execute a read/mutate document tool against the adapter. Plan/ask/screenshot
- * and the approval + snapshot lifecycle are handled by the agent hook (they need
- * React state), not here. Every adapter call is wrapped so thrown Syncfusion
- * errors become structured tool errors the model can react to.
- */
+/** Adapter dispatch only. Plan/ask/screenshot need React state in the hook. */
 export async function executeAdapterTool(
   adapter: SpreadsheetAdapter,
   name: string,
@@ -21,7 +16,6 @@ export async function executeAdapterTool(
   const args = (rawArgs ?? {}) as Record<string, any>;
   try {
     switch (name) {
-      // ---- reads ----
       case 'read_range':
         return ok(await adapter.readRange(args.range));
       case 'get_sheets':
@@ -36,26 +30,32 @@ export async function executeAdapterTool(
         adapter.activateSheet(args.name);
         return ok({ active: args.name });
 
-      // ---- mutations ----
       case 'set_values': {
-        const cells = parseJsonIfString(args.cells);
-        const values = parseJsonIfString(args.values);
-        if (cells && typeof cells === 'object' && !Array.isArray(cells)) {
-          const n = adapter.setValuesMap(cells as Record<string, unknown>, args.sheet);
-          return ok({ cellsWritten: n });
+        const cells = coerceCells(args.cells);
+        const values = coerceValuesGrid(args.values ?? args.rows ?? args.data);
+        if (cells) {
+          return writeValuesResult(adapter.setValuesMap(cells, args.sheet));
         }
-        if (args.range && Array.isArray(values)) {
-          const n = adapter.setValuesBlock(args.range, values as unknown[][], args.sheet);
-          return ok({ cellsWritten: n });
+        if (args.range && values) {
+          return writeValuesResult(adapter.setValuesBlock(args.range, values, args.sheet));
         }
-        return fail('Provide either `cells` or `range`+`values` (values must be a 2D array).');
+        return fail(
+          `set_values needs a cells map/list or range + 2D values. Got range=${describeArg(args.range)} cells=${describeArg(args.cells)} values=${describeArg(args.values)}.`,
+        );
       }
       case 'clear_range':
         adapter.clearRange(args.range);
         return ok({ cleared: args.range });
-      case 'set_format':
-        adapter.setFormat(args.range, args.style ?? {});
+      case 'set_format': {
+        const style = parseJsonIfString(args.style);
+        adapter.setFormat(
+          args.range,
+          style && typeof style === 'object' && !Array.isArray(style)
+            ? (style as Record<string, string | number>)
+            : {},
+        );
         return ok({ formatted: args.range });
+      }
       case 'set_number_format':
         adapter.setNumberFormat(args.range, args.format);
         return ok({ range: args.range, format: args.format });
@@ -100,11 +100,23 @@ export async function executeAdapterTool(
         return ok({ chart: args.type, range: args.range, boundRange: chart.range, packed: chart.packed });
       }
       case 'add_conditional_format':
-        adapter.addConditionalFormat(args.range, args.type, args.value, args.format);
+        adapter.addConditionalFormat(
+          args.range,
+          args.type,
+          args.value,
+          parseJsonIfString(args.format) as Record<string, string> | undefined,
+        );
         return ok({ range: args.range, type: args.type });
-      case 'add_data_validation':
-        adapter.addDataValidation(args.range, args.rule ?? {});
+      case 'add_data_validation': {
+        const rule = parseJsonIfString(args.rule);
+        adapter.addDataValidation(
+          args.range,
+          rule && typeof rule === 'object' && !Array.isArray(rule)
+            ? (rule as Record<string, string | number>)
+            : {},
+        );
         return ok({ range: args.range });
+      }
       case 'sort_range':
         await adapter.sortRange(args.range, args.order);
         return ok({ sorted: args.range });
@@ -121,6 +133,19 @@ export async function executeAdapterTool(
   } catch (err) {
     return fail(err instanceof Error ? err.message : String(err));
   }
+}
+
+function writeValuesResult(written: WriteValuesResult): AdapterToolResult {
+  if (written.count === 0 && written.skipped.length) {
+    return fail(
+      `No cells written. Circular formulas: ${written.skipped.join('; ')}. Put totals outside the summed range.`,
+    );
+  }
+  return ok({
+    cellsWritten: written.count,
+    repaired: written.repaired.length ? written.repaired : undefined,
+    skipped: written.skipped.length ? written.skipped : undefined,
+  });
 }
 
 function ok(result: unknown): AdapterToolResult {

@@ -3,7 +3,6 @@
 import * as React from 'react';
 import { SpreadsheetComponent } from '@syncfusion/ej2-react-spreadsheet';
 
-// Syncfusion component styles (client-only module).
 import '@syncfusion/ej2-base/styles/material.css';
 import '@syncfusion/ej2-inputs/styles/material.css';
 import '@syncfusion/ej2-buttons/styles/material.css';
@@ -44,6 +43,11 @@ export default function SpreadsheetWorkspace() {
           showFormulaBar={true}
           showRibbon={true}
           allowChart={true}
+          dialogBeforeOpen={(args: { dialogName?: string; cancel?: boolean }) => {
+            if (args.dialogName === 'CircularReferenceDialog') {
+              args.cancel = true;
+            }
+          }}
         />
       </div>
       <AgentPanel adapter={adapter} open={open} onToggle={() => setOpen((o) => !o)} />

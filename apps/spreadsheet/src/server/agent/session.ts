@@ -2,12 +2,7 @@ import 'server-only';
 import type { CoreMessage } from 'ai';
 import type { AgentEvent, ClientToolResult } from '@/agent/protocol';
 
-/**
- * In-memory per-session agent state. Valid because the app is deployed as a
- * single long-running Node server (`next start`, not serverless). The SSE run
- * handler and the tool-result handler share this registry within one process,
- * which is what lets a running loop `await` an out-of-band browser tool result.
- */
+/** In-process session store. Requires a long-running Node server, not serverless. */
 export interface PendingClientTool {
   name: string;
   resolve: (result: ClientToolResult) => void;
@@ -26,7 +21,7 @@ export interface AgentSession {
 
 type SessionRegistry = Map<string, AgentSession>;
 
-// Survive dev HMR by stashing the registry on globalThis.
+// HMR would otherwise drop in-flight sessions.
 const globalForSessions = globalThis as unknown as {
   __celinaSessions?: SessionRegistry;
 };
@@ -55,7 +50,6 @@ export function getSession(id: string): AgentSession | undefined {
   return sessions.get(id);
 }
 
-/** Called by the tool-result route to unblock a waiting client tool. */
 export function resolveClientTool(payload: ClientToolResult): boolean {
   const session = sessions.get(payload.sessionId);
   if (!session) return false;
@@ -67,7 +61,6 @@ export function resolveClientTool(payload: ClientToolResult): boolean {
   return true;
 }
 
-/** Reject every outstanding client tool (used on cancel / disconnect). */
 export function rejectAllPending(session: AgentSession, reason: string): void {
   for (const [, pending] of session.pending) {
     clearTimeout(pending.timeout);

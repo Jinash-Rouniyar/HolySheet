@@ -13,10 +13,6 @@ import type { SpreadsheetAdapter } from './SpreadsheetAdapter';
 import { executeAdapterTool } from './client-tools';
 import { captureSpreadsheet } from './screenshot';
 
-// ---------------------------------------------------------------------------
-// Timeline model
-// ---------------------------------------------------------------------------
-
 export type TimelineItem =
   | { kind: 'user'; id: string; text: string }
   | { kind: 'assistant'; id: string; text: string }
@@ -70,12 +66,10 @@ export function useCelinaAgent(adapter: SpreadsheetAdapter) {
   const curAssistant = useRef<string | null>(null);
   const curThinking = useRef<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
-  // Resolvers for interactive client tools (plan/ask/approval).
   const resolvers = useRef<Map<string, (v: unknown) => void>>(new Map());
   const autoApproveRef = useRef(autoApprove);
   autoApproveRef.current = autoApprove;
 
-  // ---- timeline helpers ----
   const push = useCallback((item: TimelineItem) => {
     setItems((prev) => [...prev, item]);
   }, []);
@@ -108,7 +102,6 @@ export function useCelinaAgent(adapter: SpreadsheetAdapter) {
     curThinking.current = null;
   }, []);
 
-  // ---- server round-trip: post a client tool result ----
   const postToolResult = useCallback(
     async (payload: Omit<ClientToolResult, 'sessionId'>) => {
       await fetch(apiUrl('/api/agent/tool-result'), {
@@ -126,12 +119,10 @@ export function useCelinaAgent(adapter: SpreadsheetAdapter) {
     });
   }, []);
 
-  // ---- handle a client tool request from the server ----
   const handleClientTool = useCallback(
     async (id: string, name: string, args: any) => {
       resetStreams();
 
-      // Interactive: plan
       if (name === 'present_plan') {
         push({
           kind: 'plan',
@@ -156,7 +147,6 @@ export function useCelinaAgent(adapter: SpreadsheetAdapter) {
         return;
       }
 
-      // Interactive: ask_user
       if (name === 'ask_user') {
         push({
           kind: 'ask',
@@ -171,7 +161,6 @@ export function useCelinaAgent(adapter: SpreadsheetAdapter) {
         return;
       }
 
-      // Vision: screenshot
       if (name === 'capture_screenshot') {
         push({ kind: 'tool', id, name, side: 'client', status: 'running', args });
         try {
@@ -189,7 +178,6 @@ export function useCelinaAgent(adapter: SpreadsheetAdapter) {
         return;
       }
 
-      // Mutation with approval gate + snapshot
       if (isMutatingTool(name)) {
         const needsApproval = !autoApproveRef.current;
         push({
@@ -213,7 +201,6 @@ export function useCelinaAgent(adapter: SpreadsheetAdapter) {
           }
           patch(id, (it) => (it.kind === 'tool' ? { ...it, status: 'running' } : it));
         }
-        // snapshot before mutating
         let undoIndex: number | undefined;
         try {
           const json = await adapter.snapshot();
@@ -226,7 +213,7 @@ export function useCelinaAgent(adapter: SpreadsheetAdapter) {
         }
         const res = await executeAdapterTool(adapter, name, args);
         if (!res.ok) {
-          // Drop the pre-call snapshot so Undo does not restore a half-built sheet.
+          // Failed writes must not leave an undo point that restores a half-built sheet.
           setUndoStack((prev) => prev.slice(0, -1));
           undoIndex = undefined;
         }
@@ -249,7 +236,6 @@ export function useCelinaAgent(adapter: SpreadsheetAdapter) {
         return;
       }
 
-      // Read-only document tool
       push({ kind: 'tool', id, name, side: 'client', status: 'running', args });
       const res = await executeAdapterTool(adapter, name, args);
       patch(id, (it) =>
@@ -267,7 +253,6 @@ export function useCelinaAgent(adapter: SpreadsheetAdapter) {
     [adapter, awaitUser, patch, postToolResult, push, resetStreams],
   );
 
-  // ---- SSE event dispatch ----
   const handleEvent = useCallback(
     (ev: AgentEvent) => {
       switch (ev.type) {
@@ -306,7 +291,7 @@ export function useCelinaAgent(adapter: SpreadsheetAdapter) {
         case 'run_finished':
           setRunning(false);
           resetStreams();
-          // Safety net: last-turn text that never arrived as text_delta.
+          // Some turns only ship the closer on run_finished.
           if (ev.text) {
             setItems((prev) => {
               const lastUser = [...prev].reverse().find((it) => it.kind === 'user');
@@ -326,7 +311,6 @@ export function useCelinaAgent(adapter: SpreadsheetAdapter) {
     [appendText, handleClientTool, patch, push, resetStreams],
   );
 
-  // ---- start a run (POST + SSE stream over fetch) ----
   const sendMessage = useCallback(
     async (message: string) => {
       if (running) return;
@@ -405,7 +389,6 @@ export function useCelinaAgent(adapter: SpreadsheetAdapter) {
     [adapter, handleEvent, push, resetStreams, running],
   );
 
-  // ---- user interactions on plan/ask/approval ----
   const proceedPlan = useCallback((id: string, proceed: boolean, note?: string) => {
     resolvers.current.get(id)?.({ proceed, note });
     resolvers.current.delete(id);

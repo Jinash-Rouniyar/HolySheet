@@ -147,8 +147,6 @@ export default function AgentPanel({ adapter, open, onToggle }: Props) {
   );
 }
 
-// ---------------------------------------------------------------------------
-
 function ItemView({
   item,
   onProceed,

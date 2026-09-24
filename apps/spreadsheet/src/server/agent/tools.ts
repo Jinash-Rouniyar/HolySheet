@@ -5,6 +5,15 @@ import type { AgentEvent } from '@/agent/protocol';
 import type { AgentSession } from './session';
 import { webSearch } from './search';
 import {
+  secLookup,
+  secFilings,
+  secFinancials,
+  secConcept,
+  secComps,
+  secFilingText,
+  secInsiders,
+} from './edgar';
+import {
   runBash,
   runPython,
   readSandboxFile,
@@ -12,14 +21,103 @@ import {
   listSandbox,
 } from './sandbox';
 import { GUIDES, listGuides } from './prompts';
-import { parseJsonIfString } from '@/agent/coerce';
-
 type Emit = (event: AgentEvent) => void;
 
 /**
- * Wrap a server-side tool so every run emits tool_call / tool_result events for
- * the UI timeline, using the model's real toolCallId as the correlation id.
+ * GPT-5.x rejects optional keys, open records, and mixed unions.
+ * Rewrite to nullable-required fields before the request goes out.
  */
+function openaiParameters(schema: z.ZodTypeAny): z.ZodTypeAny {
+  return assertOpenAiShape('tool', rewriteForOpenAi(schema));
+}
+
+function rewriteForOpenAi(schema: z.ZodTypeAny): z.ZodTypeAny {
+  if (schema instanceof z.ZodOptional) {
+    const inner = rewriteForOpenAi(schema.unwrap());
+    const nullable = inner instanceof z.ZodNullable ? inner : inner.nullable();
+    const desc = schema.description ?? inner.description;
+    return desc ? nullable.describe(desc) : nullable;
+  }
+  if (schema instanceof z.ZodNullable) {
+    const inner = rewriteForOpenAi(schema.unwrap());
+    return inner instanceof z.ZodNullable ? inner : inner.nullable();
+  }
+  if (schema instanceof z.ZodEffects) {
+    return rewriteForOpenAi(schema.innerType());
+  }
+  if (schema instanceof z.ZodRecord) {
+    const desc = schema.description;
+    const s = z
+      .string()
+      .describe(
+        `${desc ? `${desc} ` : ''}Pass a JSON object encoded as a string.`,
+      );
+    return s;
+  }
+  if (schema instanceof z.ZodUnion) {
+    const options = schema.options as z.ZodTypeAny[];
+    const rewritten = options.map((option) => rewriteForOpenAi(option));
+    const primitive = rewritten.every(
+      (option) =>
+        option instanceof z.ZodString ||
+        option instanceof z.ZodNumber ||
+        option instanceof z.ZodBoolean ||
+        option instanceof z.ZodNull ||
+        option instanceof z.ZodEnum ||
+        option instanceof z.ZodLiteral,
+    );
+    if (primitive) {
+      return z
+        .string()
+        .describe(schema.description ?? 'Value as a string (numbers/booleans allowed as text).');
+    }
+    return z.union(rewritten as [z.ZodTypeAny, z.ZodTypeAny, ...z.ZodTypeAny[]]);
+  }
+  if (schema instanceof z.ZodObject) {
+    const shape = schema.shape as Record<string, z.ZodTypeAny>;
+    const next: Record<string, z.ZodTypeAny> = {};
+    for (const [key, value] of Object.entries(shape)) {
+      next[key] = rewriteForOpenAi(value);
+    }
+    return z.object(next);
+  }
+  if (schema instanceof z.ZodArray) {
+    return z.array(rewriteForOpenAi(schema.element));
+  }
+  return schema;
+}
+
+function assertOpenAiShape(path: string, schema: z.ZodTypeAny): z.ZodTypeAny {
+  if (schema instanceof z.ZodOptional) {
+    throw new Error(`OpenAI schema ${path}: leftover .optional()`);
+  }
+  if (schema instanceof z.ZodRecord) {
+    throw new Error(`OpenAI schema ${path}: leftover z.record()`);
+  }
+  if (schema instanceof z.ZodEffects) {
+    throw new Error(`OpenAI schema ${path}: leftover preprocess/transform`);
+  }
+  if (schema instanceof z.ZodUnion) {
+    throw new Error(`OpenAI schema ${path}: leftover union (use a single type)`);
+  }
+  if (schema instanceof z.ZodNullable) {
+    assertOpenAiShape(path, schema.unwrap());
+    return schema;
+  }
+  if (schema instanceof z.ZodObject) {
+    for (const [key, value] of Object.entries(schema.shape)) {
+      assertOpenAiShape(`${path}.${key}`, value as z.ZodTypeAny);
+    }
+    return schema;
+  }
+  if (schema instanceof z.ZodArray) {
+    assertOpenAiShape(`${path}[]`, schema.element);
+    return schema;
+  }
+  return schema;
+}
+
+/** Emit timeline events keyed by the model's toolCallId. */
 function serverTool<TArgs>(
   name: string,
   description: string,
@@ -29,7 +127,7 @@ function serverTool<TArgs>(
 ): CoreTool {
   return tool({
     description,
-    parameters: parameters as z.ZodType<TArgs>,
+    parameters: openaiParameters(parameters) as z.ZodType<TArgs>,
     execute: async (args: TArgs, { toolCallId }) => {
       emit({ type: 'tool_call', id: toolCallId, name, side: 'server', args });
       try {
@@ -68,6 +166,139 @@ export function buildServerTools(
         return {
           result: res,
           summary: `${res.provider}: ${res.results.length} results for "${query}"`,
+        };
+      },
+      emit,
+    ),
+
+    sec_lookup: serverTool(
+      'sec_lookup',
+      'Resolve a US-listed issuer on SEC EDGAR. Pass a ticker, CIK, or company name. Use this before other sec_* tools. Not for prices or private/non-US companies.',
+      z.object({
+        query: z.string().describe('Ticker (AAPL), CIK, or company name.'),
+      }),
+      async ({ query }) => {
+        const res = await secLookup(query);
+        return {
+          result: res,
+          summary: `${res.match.ticker || res.match.cik}: ${res.match.name}`,
+        };
+      },
+      emit,
+    ),
+
+    sec_filings: serverTool(
+      'sec_filings',
+      'List recent SEC filings for an issuer (10-K, 10-Q, 8-K, 4, 20-F, …). Returns form, filed date, period, accession, 8-K items, and document URL. Use exact form codes (10-K not 10-K/A unless you want amendments).',
+      z.object({
+        ticker: z.string().describe('Ticker or CIK.'),
+        forms: z.array(z.string()).optional().describe('e.g. ["10-K","8-K"]. Exact form codes.'),
+        limit: z.number().int().min(1).max(100).optional(),
+        since: z.string().optional().describe('Inclusive YYYY-MM-DD.'),
+        until: z.string().optional().describe('Inclusive YYYY-MM-DD.'),
+      }),
+      async ({ ticker, forms, limit, since, until }) => {
+        const res = await secFilings({ tickerOrCik: ticker, forms, limit, since, until });
+        return {
+          result: res,
+          summary: `${res.entity.ticker || res.entity.cik}: ${res.filings.length} filings`,
+        };
+      },
+      emit,
+    ),
+
+    sec_financials: serverTool(
+      'sec_financials',
+      'Pull a compact income / balance / cashflow / metrics table from SEC XBRL companyfacts. Annual uses latest non-amendment 10-K (20-F fallback); quarterly uses 10-Q. Banks/insurers/REITs may omit mapped lines — use unmappedHints + sec_concept. Write numbers as values; forecasts as formulas. Not for live prices.',
+      z.object({
+        ticker: z.string().describe('Ticker or CIK.'),
+        statement: z.enum(['income', 'balance', 'cashflow', 'metrics']),
+        period: z.enum(['annual', 'quarterly']),
+        years: z.number().int().min(1).max(15).optional().describe('How many periods (default 5).'),
+      }),
+      async ({ ticker, statement, period, years }) => {
+        const res = await secFinancials({ tickerOrCik: ticker, statement, period, years });
+        return {
+          result: res,
+          summary: `${res.entity.ticker || res.entity.cik} ${statement} ${period}: ${res.rows.length} lines × ${res.columns.length}y`,
+        };
+      },
+      emit,
+    ),
+
+    sec_concept: serverTool(
+      'sec_concept',
+      'Fetch one us-gaap/ifrs/dei tag time series for an issuer, or search that issuer\'s reported fact keys. Use when sec_financials missed a line (banks, insurers, REITs).',
+      z.object({
+        ticker: z.string().describe('Ticker or CIK.'),
+        tag: z.string().optional().describe('e.g. InterestIncome or us-gaap:Revenues'),
+        search: z.string().optional().describe('Substring over tag names/labels if you do not know the tag.'),
+      }),
+      async ({ ticker, tag, search }) => {
+        const res = await secConcept({ tickerOrCik: ticker, tag, search });
+        if ('matches' in res) {
+          return { result: res, summary: `${res.entity.ticker}: ${res.matches.length} tag matches` };
+        }
+        return {
+          result: res,
+          summary: `${res.entity.ticker} ${res.tag}: ${res.points.length} pts`,
+        };
+      },
+      emit,
+    ),
+
+    sec_comps: serverTool(
+      'sec_comps',
+      'One XBRL tag × one period × up to 15 tickers (SEC frames, companyfacts fallback). Period like FY2023 or 2023Q2. For peer tables, not a full screener.',
+      z.object({
+        tag: z.string().describe('us-gaap tag, e.g. Revenues or OperatingIncomeLoss'),
+        period: z.string().describe('FY2023, 2023Q2, or CY2023Q4I'),
+        tickers: z.array(z.string()).min(1).max(15),
+      }),
+      async ({ tag, period, tickers }) => {
+        const res = await secComps({ tag, period, tickers });
+        return {
+          result: res,
+          summary: `${tag} ${period}: ${res.rows.length} peers`,
+        };
+      },
+      emit,
+    ),
+
+    sec_filing_text: serverTool(
+      'sec_filing_text',
+      'Search EDGAR full text (efts) and/or pull a capped excerpt (~12k chars) of a filing. Pass ticker+query for hits, or accession (+ ticker) to open a specific document. Use for MD&A, 8-K body, EX-99 — not whole 10-K ingest.',
+      z.object({
+        ticker: z.string().optional().describe('Ticker or CIK (required with accession, recommended with query).'),
+        query: z.string().optional().describe('Full-text search, e.g. "goodwill impairment".'),
+        accession: z.string().optional().describe('Accession number like 0000320193-24-000123.'),
+        forms: z.array(z.string()).optional(),
+      }),
+      async ({ ticker, query, accession, forms }) => {
+        const res = await secFilingText({ tickerOrCik: ticker, query, accession, forms });
+        const n = res.excerpt?.length ?? 0;
+        return {
+          result: res,
+          summary: res.excerpt
+            ? `excerpt ${n} chars${res.hits.length ? `, ${res.hits.length} hits` : ''}`
+            : `${res.hits.length} filing hits`,
+        };
+      },
+      emit,
+    ),
+
+    sec_insiders: serverTool(
+      'sec_insiders',
+      'Recent Form 4 insider transactions for an issuer: date, insider, role, code, shares, price, remaining stake. Not a full ownership graph.',
+      z.object({
+        ticker: z.string().describe('Ticker or CIK.'),
+        limit: z.number().int().min(1).max(25).optional(),
+      }),
+      async ({ ticker, limit }) => {
+        const res = await secInsiders({ tickerOrCik: ticker, limit });
+        return {
+          result: res,
+          summary: `${res.entity.ticker || res.entity.cik}: ${res.rows.length} Form 4 rows`,
         };
       },
       emit,
@@ -161,35 +392,41 @@ export function buildServerTools(
   };
 }
 
-// ---------------------------------------------------------------------------
-// Client tool schemas (NO execute) — the AI SDK forwards these as tool calls;
-// the browser executes them against the SpreadsheetAdapter and returns results
-// via the tool-result round-trip. Descriptions/params must be good enough for
-// the model to call them correctly.
-// ---------------------------------------------------------------------------
+// Schemas only — execute lives in the browser.
 
-const cellValue = z.union([z.string(), z.number(), z.boolean(), z.null()]);
+const cellWrite = z.object({
+  address: z.string().describe('A1 address, e.g. "B12" or "Budget!B12".'),
+  value: z.string().describe('Literal or formula. Formulas MUST start with =.'),
+});
 
-const cellsRecord = z.preprocess(
-  parseJsonIfString,
-  z
-    .record(z.string(), cellValue)
-    .describe('Map of A1 cell address -> value/formula, e.g. {"A1":"Name","B2":"=A2*2"}'),
-);
+const cellStyle = z.object({
+  fontWeight: z.string().nullable(),
+  fontStyle: z.string().nullable(),
+  fontSize: z.string().nullable(),
+  color: z.string().nullable(),
+  backgroundColor: z.string().nullable(),
+  textAlign: z.string().nullable(),
+  verticalAlign: z.string().nullable(),
+  border: z.string().nullable(),
+});
 
-const valuesGrid = z.preprocess(
-  parseJsonIfString,
-  z
-    .array(z.array(cellValue))
-    .describe('2D array of values aligned to `range`. Pass a real array, not a string.'),
-);
+const highlightFormat = z.object({
+  backgroundColor: z.string().nullable(),
+  color: z.string().nullable(),
+});
+
+const validationRule = z.object({
+  type: z.string().describe('List, WholeNumber, Decimal, Date, TextLength, …'),
+  operator: z.string().nullable(),
+  value1: z.string().nullable(),
+  value2: z.string().nullable(),
+});
 
 export function buildClientToolSchemas(): Record<string, CoreTool> {
   const t = (description: string, parameters: z.ZodTypeAny): CoreTool =>
-    tool({ description, parameters });
+    tool({ description, parameters: openaiParameters(parameters) });
 
   return {
-    // ---- read-only ----
     get_sheets: t(
       'List all sheets in the workbook with their index, name and used range.',
       z.object({}),
@@ -217,14 +454,22 @@ export function buildClientToolSchemas(): Record<string, CoreTool> {
       z.object({ name: z.string() }),
     ),
 
-    // ---- mutations ----
     set_values: t(
-      'Write values/formulas. Provide EITHER cells (address->value map) OR a 2D block via range+values. Always use formulas for derived values.',
+      'Write values/formulas. Prefer range + values as a real 2D array of strings (numbers as "5000", formulas as "=B2-B3"). Do NOT stringify the whole grid. Sparse writes: cells [{address,value}]. Totals must sit outside the range they SUM.',
       z.object({
-        sheet: z.string().optional(),
-        cells: cellsRecord.optional(),
-        range: z.string().optional().describe('Top-left anchored range for a 2D block.'),
-        values: valuesGrid.optional(),
+        sheet: z.string().optional().describe('Sheet name if range is not qualified.'),
+        range: z
+          .string()
+          .optional()
+          .describe('Top-left of the 2D block, e.g. "A1" or "Budget!A1". Required with values.'),
+        values: z
+          .array(z.array(z.string()))
+          .optional()
+          .describe('2D grid of strings aligned to range. Not a JSON string.'),
+        cells: z
+          .array(cellWrite)
+          .optional()
+          .describe('Sparse A1 writes. Prefer range+values for tables.'),
       }),
     ),
     clear_range: t('Clear the contents of a range.', z.object({ range: z.string() })),
@@ -232,11 +477,9 @@ export function buildClientToolSchemas(): Record<string, CoreTool> {
       'Apply cell formatting to a range (bold, colors, alignment, borders, font).',
       z.object({
         range: z.string(),
-        style: z
-          .record(z.string(), z.union([z.string(), z.number()]))
-          .describe(
-            'Syncfusion cellFormat keys. fontSize MUST include units as a string ("14pt" or "12px"), never a bare number. Other keys: fontWeight ("bold"), fontStyle ("italic"), color, backgroundColor, textAlign, verticalAlign, border ("1px solid #E5E7EB").',
-          ),
+        style: cellStyle.describe(
+          'Cell format. fontSize MUST be a string with units ("14pt"), never a bare number. Unused keys: pass null.',
+        ),
       }),
     ),
     set_number_format: t(
@@ -308,20 +551,15 @@ export function buildClientToolSchemas(): Record<string, CoreTool> {
         type: z
           .string()
           .describe('e.g. GreaterThan, LessThan, Between, ColorScale, DataBar, Top10'),
-        value: z.union([z.string(), z.number()]).optional(),
-        format: z
-          .record(z.string(), z.string())
-          .optional()
-          .describe('backgroundColor/color for the highlight.'),
+        value: z.string().optional().describe('Threshold as a string, e.g. "100" or "0.2".'),
+        format: highlightFormat.optional(),
       }),
     ),
     add_data_validation: t(
       'Add data validation to a range (e.g. a dropdown list or numeric bound).',
       z.object({
         range: z.string(),
-        rule: z
-          .record(z.string(), z.union([z.string(), z.number()]))
-          .describe('Syncfusion validation: type ("List","WholeNumber",...), operator, value1, value2.'),
+        rule: validationRule,
       }),
     ),
     sort_range: t(
@@ -337,7 +575,6 @@ export function buildClientToolSchemas(): Record<string, CoreTool> {
       z.object({ name: z.string(), range: z.string() }),
     ),
 
-    // ---- vision + interaction ----
     capture_screenshot: t(
       'Capture a PNG screenshot of the current spreadsheet viewport and return it as an image for you to inspect (formatting QA). Optionally scroll to a range first.',
       z.object({ range: z.string().optional() }),
@@ -350,10 +587,18 @@ export function buildClientToolSchemas(): Record<string, CoreTool> {
       }),
     ),
     ask_user: t(
-      'Ask the user a single focused question with at most 3 options when a decision materially changes the outcome and you are unsure.',
+      'REQUIRED whenever you would otherwise list 2–3 choices in chat (budget type, layout, sheet vs new tab, etc.). Renders clickable chips. Do not put the options in your message text. One question, 2 or 3 options, then stop and wait.',
       z.object({
-        question: z.string(),
-        options: z.array(z.object({ id: z.string(), label: z.string() })).max(3),
+        question: z.string().describe('A single focused question.'),
+        options: z
+          .array(
+            z.object({
+              id: z.string().describe('Short stable id, e.g. personal, household, business.'),
+              label: z.string().describe('Button text the user taps.'),
+            }),
+          )
+          .min(2)
+          .max(3),
       }),
     ),
   };

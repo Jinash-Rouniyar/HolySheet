@@ -29,10 +29,20 @@ function messageParts(content: unknown): any[] {
 }
 
 function partText(part: any): string {
-  return String(part?.textDelta ?? part?.text ?? '');
+  return String(part?.textDelta ?? part?.text ?? part?.reasoning ?? part?.delta ?? '');
 }
 
-/** Pull user-visible assistant text out of a completed streamText response. */
+function extractReasoningText(messages: CoreMessage[]): string {
+  let text = '';
+  for (const msg of messages) {
+    if (msg.role !== 'assistant') continue;
+    for (const part of messageParts(msg.content)) {
+      if (part?.type === 'reasoning' && part.text) text += part.text;
+    }
+  }
+  return text;
+}
+
 function extractAssistantText(messages: CoreMessage[]): string {
   let text = '';
   for (const msg of messages) {
@@ -48,7 +58,6 @@ function extractAssistantText(messages: CoreMessage[]): string {
   return text;
 }
 
-/** Collect tool-call parts across assistant messages. */
 function extractToolCalls(messages: CoreMessage[]): ToolCallPart[] {
   const calls: ToolCallPart[] = [];
   for (const msg of messages) {
@@ -66,7 +75,6 @@ function extractToolCalls(messages: CoreMessage[]): ToolCallPart[] {
   return calls;
 }
 
-/** Set of toolCallIds that already have a tool-result (i.e. server tools). */
 function extractResolvedIds(messages: CoreMessage[]): Set<string> {
   const ids = new Set<string>();
   for (const msg of messages) {
@@ -78,10 +86,7 @@ function extractResolvedIds(messages: CoreMessage[]): Set<string> {
   return ids;
 }
 
-/**
- * Emit `request_client_tool` and block until the browser POSTs a result back to
- * /api/agent/tool-result (which resolves the pending promise on the session).
- */
+/** Blocks until the browser POSTs the matching tool-result. */
 function requestClientTool(
   session: AgentSession,
   emit: Emit,
@@ -109,7 +114,6 @@ function requestClientTool(
   });
 }
 
-/** Build the CoreMessages that feed a client tool result back into the model. */
 function toolResultMessages(
   call: ToolCallPart,
   res: ClientToolResult,
@@ -131,8 +135,7 @@ function toolResultMessages(
     ],
   } as CoreMessage);
 
-  // Screenshots come back as an image; attach it as a user image message so the
-  // vision model can actually see it (tool results are text/JSON only).
+  // Tool results are JSON-only; vision needs a user image part.
   if (call.toolName === 'capture_screenshot' && res.image) {
     messages.push({
       role: 'user',
@@ -189,6 +192,7 @@ export async function runAgent(
       });
 
       let turnText = '';
+      let turnThinking = '';
       for await (const part of result.fullStream as AsyncIterable<any>) {
         if (part.type === 'text-delta' || part.type === 'text') {
           const text = partText(part);
@@ -201,7 +205,10 @@ export async function runAgent(
           part.type === 'reasoning-delta'
         ) {
           const text = partText(part);
-          if (text) emit({ type: 'thinking_delta', text });
+          if (text) {
+            turnThinking += text;
+            emit({ type: 'thinking_delta', text });
+          }
         } else if (part.type === 'error') {
           const message =
             part.error instanceof Error ? part.error.message : String(part.error);
@@ -212,8 +219,15 @@ export async function runAgent(
       const response = await result.response;
       session.messages.push(...(response.messages as CoreMessage[]));
 
-      // Extended thinking often streams the wrap-up as reasoning only. Recover
-      // any leftover assistant text the stream missed so the UI still gets a closer.
+      if (!turnThinking) {
+        const leftoverReasoning = extractReasoningText(response.messages as CoreMessage[]);
+        if (leftoverReasoning) {
+          turnThinking = leftoverReasoning;
+          emit({ type: 'thinking_delta', text: leftoverReasoning });
+        }
+      }
+
+      // Extended thinking often ships the closer as reasoning only.
       if (!turnText) {
         const leftover =
           extractAssistantText(response.messages as CoreMessage[]) ||
@@ -232,7 +246,7 @@ export async function runAgent(
       );
 
       if (pending.length === 0) {
-        // Verification guard: the model claims an edit but nothing mutating ran.
+        // Model claimed an edit but no mutating tool succeeded.
         if (!correctedOnce && !mutatedOk && CLAIM_RE.test(finalText)) {
           correctedOnce = true;
           session.messages.push({
@@ -242,7 +256,7 @@ export async function runAgent(
           });
           continue;
         }
-        // Claude with thinking can end a successful run with no text block.
+        // Claude + thinking can finish a successful run with no text block.
         if (!finalText) {
           finalText = 'Done. The workbook is up to date.';
           emit({ type: 'text_delta', text: finalText });
@@ -250,7 +264,6 @@ export async function runAgent(
         break;
       }
 
-      // Execute each pending client tool via the browser round-trip.
       for (const call of pending) {
         try {
           const res = await requestClientTool(session, emit, call);

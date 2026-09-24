@@ -12,11 +12,7 @@ export interface WebSearchResponse {
   provider: 'tavily' | 'exa';
 }
 
-/**
- * Single web-search tool backing. Tavily is primary, Exa is the fallback; the
- * standalone "Deep Search" feature and Perplexity are gone — the agent decides
- * when to research as part of its normal tool use.
- */
+/** Tavily first, Exa fallback. */
 export async function webSearch(
   query: string,
   maxResults = 5,
