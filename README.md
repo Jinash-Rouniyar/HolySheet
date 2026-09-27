@@ -1,41 +1,26 @@
-# Polyglot Monorepo
+# HolySheet
 
-This repository contains multiple independent applications under `apps/`.
+Celina — an AI spreadsheet agent. Natural language in, live workbook edits out.
 
-## Structure
+This repo is the spreadsheet app only. The personal site lives in a separate `portfolio` repo and is hosted on [jinash.com](https://www.jinash.com).
 
 ```
-apps/
-  portfolio/          Personal portfolio site (gateway)
-  spreadsheet/        Celina AI Spreadsheet (React)
-  spreadsheet-api/    Spreadsheet backend API (Express)
+apps/spreadsheet/    Next.js app + agent harness (port 3002)
 ```
 
-## Apps
-
-| App | Description | Local Port |
-|-----|------------|------------|
-| `apps/portfolio` | Portfolio landing page & gateway | 3000 |
-| `apps/spreadsheet` | AI-powered spreadsheet app | 3002 |
-| `apps/spreadsheet-api` | Express API for research/data | 5000 |
-
-## Getting started
-
-Each app is independent. `cd` into the app folder and run:
+## Local
 
 ```bash
+cd apps/spreadsheet
 npm install
-npm start
+cp .env.example .env   # add API keys
+npm run dev
 ```
 
-## CI/CD
+Open `http://localhost:3002/spreadsheet`.
 
-Each app has its own GitHub Actions workflow that triggers only when files in that app change.
+The agent loop is a long-running Node process (SSE + bash/python). Deploy it as a standalone server (e.g. Fly), not Vercel serverless.
 
-## Vercel deployment
+## CI
 
-Each app is deployed as a separate Vercel project with a different **Root Directory**:
-
-- **Portfolio (gateway):** `apps/portfolio` -- owns the custom domain, rewrites to other apps
-- **Spreadsheet:** `apps/spreadsheet`
-- **Spreadsheet API:** `apps/spreadsheet-api`
+`.github/workflows/spreadsheet.yml` runs lint + build when `apps/spreadsheet/**` changes.

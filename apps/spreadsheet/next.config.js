@@ -1,6 +1,6 @@
 /**
- * Served at /spreadsheet behind the portfolio gateway. `standalone` is required
- * for the long-running agent loop; Vercel serverless is not the target.
+ * `basePath` keeps the public URL at /spreadsheet (proxied from jinash.com).
+ * `standalone` is required for the long-running agent loop; not Vercel serverless.
  *
  * @type {import('next').NextConfig}
  */
