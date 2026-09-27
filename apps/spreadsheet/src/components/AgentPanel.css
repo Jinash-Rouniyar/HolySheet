@@ -42,11 +42,7 @@
 .celina-brand {
   display: flex;
   align-items: center;
-  gap: 6px;
   font-weight: 600;
-}
-.celina-brand-icon {
-  color: #10a37f;
 }
 .celina-header-actions {
   display: flex;

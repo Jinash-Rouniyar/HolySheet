@@ -12,7 +12,6 @@ import {
   PanelRightClose,
   PanelRightOpen,
   RotateCcw,
-  Sparkles,
   Square,
   Terminal,
   Wrench,
@@ -64,7 +63,6 @@ export default function AgentPanel({ adapter, open, onToggle }: Props) {
     <div className="celina-panel">
       <header className="celina-header">
         <div className="celina-brand">
-          <Sparkles size={16} className="celina-brand-icon" />
           <span>Celina</span>
         </div>
         <div className="celina-header-actions">
@@ -93,10 +91,9 @@ export default function AgentPanel({ adapter, open, onToggle }: Props) {
       <div className="celina-timeline" ref={scrollRef}>
         {agent.items.length === 0 && (
           <div className="celina-empty">
-            <Sparkles size={22} />
             <p>Ask Celina to build, analyze, or format your worksheet.</p>
             <span className="celina-empty-hint">
-              She plans first, asks before big decisions, and shows every edit.
+              It plans first, asks before big decisions, and shows every edit.
             </span>
           </div>
         )}
